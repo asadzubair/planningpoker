@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pointer – Planning Poker</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eceef4;--ink:#17202e;--mut:#5d6778;--acc:#3b34c4;--gold:#f2b544;--ok:#1f9d6b;--line:#d5d9e4;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.wrap{max-width:920px;margin:0 auto;padding:20px 16px 40px}.narrow{max-width:460px}
+h1,h2{margin:0;letter-spacing:-.02em}.logo{font-size:44px;font-weight:800;color:var(--acc)}
+.lead{color:var(--mut);margin:6px 0 20px}.note{color:var(--mut);font-size:13px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+label{display:block;font-weight:600;font-size:14px;margin-bottom:12px}
+input{display:block;width:100%;margin-top:4px;padding:11px 12px;font:inherit;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.btn{font:inherit;font-weight:600;padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;min-height:44px}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{min-height:36px;padding:6px 12px;font-size:14px}.btn.dng{color:#b42318}
+.tabs{display:flex;gap:6px;margin-bottom:16px}.tabs button{flex:1;font:inherit;font-weight:600;padding:10px;border:0;border-bottom:3px solid var(--line);background:none;cursor:pointer;color:var(--mut)}
+.tabs .on{border-color:var(--acc);color:var(--ink)}
+.err{color:#b42318;min-height:1.4em;margin:0 0 8px;font-size:14px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row>input{flex:1;min-width:180px;margin:0}
+.room{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.room:first-of-type{border-top:0}.room b{font-size:17px}
+.bar{display:flex;align-items:center;gap:12px;margin-bottom:14px}.bar>div{flex:1;min-width:0}
+.bar h2{font-size:24px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.back{color:var(--acc);font-weight:600;text-decoration:none}
+.cs{font-size:13px;color:var(--mut)}.cs.live{color:var(--ok)}.cs.bad{color:#b42318}
+.topic{font-size:18px;font-weight:600;margin:0 0 12px;min-height:2.4em}
+input.topic{border-style:dashed}
+.table{background:var(--ink);border-radius:20px;padding:22px 14px;min-height:190px;display:flex;flex-wrap:wrap;gap:18px 14px;justify-content:center;align-content:center}
+.pl{width:88px;text-align:center;color:#cfd6e6;font-size:13px}.pl.me .nm{color:var(--gold);font-weight:600}
+.nm{margin-top:6px;word-break:break-word;line-height:1.2}
+.x{border:0;background:none;color:#8b95a8;font-size:16px;cursor:pointer;padding:0 4px}
+.pc{width:62px;height:88px;margin:0 auto;border-radius:9px;display:grid;place-items:center;font-size:30px;font-weight:800}
+.pc.none{border:2px dashed #46526a}
+.pc.back{background:repeating-linear-gradient(45deg,var(--acc) 0 6px,#2c2699 6px 12px);border:3px solid #fff}
+.pc.face{background:#fff;color:var(--ink)}
+.pop .pc.face{animation:flip .45s ease-out}@keyframes flip{from{transform:rotateY(90deg)}to{transform:none}}
+@media(prefers-reduced-motion:reduce){.pop .pc.face{animation:none}}
+.stats{font-weight:600;margin:14px 2px;min-height:1.5em}.stats i{font-style:normal;color:var(--acc)}
+.ctl{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.ctl .btn{flex:1}
+.deck{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.dc{aspect-ratio:5/7;font:inherit;font-size:clamp(22px,6vw,38px);font-weight:800;background:#fff;color:var(--ink);border:2px solid var(--line);border-radius:12px;cursor:pointer;transition:transform .12s}
+.dc.sel{transform:translateY(-10px);border-color:var(--gold);box-shadow:0 0 0 3px var(--gold);color:var(--acc)}
+.dc:disabled{opacity:.5;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const DECK=[1,3,5,8,13,21];
+/* Storage: localStorage when allowed; otherwise falls back to window.name (survives reloads in the same tab).
+   SharePoint can serve pages in a sandbox where localStorage is blocked. */
+const store=(()=>{
+  try{localStorage.setItem('__t','1');localStorage.removeItem('__t');
+    return{persist:true,get:k=>localStorage.getItem(k),set:(k,v)=>localStorage.setItem(k,v),del:k=>localStorage.removeItem(k)}}catch{}
+  let m={};try{const j=JSON.parse(window.name);if(j&&typeof j==='object'&&j.__pp)m=j}catch{}
+  m.__pp=1;const sv=()=>{try{window.name=JSON.stringify(m)}catch{}};
+  return{persist:false,get:k=>m[k]??null,set:(k,v)=>{m[k]=v;sv()},del:k=>{delete m[k];sv()}};
+})();
+const LS={get(k,d){try{return JSON.parse(store.get(k))??d}catch{return d}},set(k,v){try{store.set(k,JSON.stringify(v))}catch(e){throw Error('Could not save data: '+e.message)}},del(k){try{store.del(k)}catch{}}};
+const view=h=>{$('#app').innerHTML=h};
+/* SharePoint may show this page inside an iframe whose own address is about:srcdoc, so a #link can't be built from it.
+   In that case invites carry the page address (editable on the dashboard) plus the room code. */
+const direct=/^https?:/.test(location.href);
+const base=()=>direct?location.href.split('#')[0]:(LS.get('pp.base','')||(document.referrer||'').split('#')[0]);
+const invite=id=>direct?base()+'#/join/'+id:`Join our planning poker session: ${base()||'(open the planning poker page)'}\nEnter room code: ${id}`;
+const copy=async(t,btn)=>{
+  try{await navigator.clipboard.writeText(t);if(btn){const o=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=o,1500)}}
+  catch{let d=$('#lk');if(!d){d=document.createElement('input');d.id='lk';d.readOnly=true;d.setAttribute('aria-label','Invite link');d.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:9;box-shadow:0 4px 20px #0004';document.body.appendChild(d)}
+    d.value=t;d.focus();d.select();if(btn)btn.textContent='Select and copy below'}
+};
+
+/* ---------- local accounts (stored in this browser only) ---------- */
+const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b)));
+const rnd=n=>b64(crypto.getRandomValues(new Uint8Array(n)));
+async function hashPw(pw,salt){
+  const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+  const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:Uint8Array.from(atob(salt),c=>c.charCodeAt(0)),iterations:150000,hash:'SHA-256'},k,256);
+  return b64(bits);
+}
+const user=()=>{const e=LS.get('pp.me');const u=LS.get('pp.users',{})[e];return u?{email:e,...u}:null};
+const rooms=()=>LS.get('pp.rooms.'+user().email,[]);
+const saveRooms=r=>LS.set('pp.rooms.'+user().email,r);
+const newId=()=>[...crypto.getRandomValues(new Uint8Array(8))].map(x=>'abcdefghjkmnpqrstuvwxyz23456789'[x%31]).join('');
+
+function authView(mode='in'){
+  const up=mode==='up';
+  view(`<main class="wrap narrow"><h1 class="logo">Pointer</h1>
+  <p class="lead">Planning poker for sprint estimates. Scrum masters sign in to open a room. The team joins from a shared link, no account needed.</p>
+  <div class="panel"><div class="tabs"><button data-m="in" class="${up?'':'on'}">Sign in</button><button data-m="up" class="${up?'on':''}">Register</button></div>
+  <div id="f">${up?'<label>Your name<input name="name" required autocomplete="name"></label>':''}
+  <label>Email<input name="email" type="email" required autocomplete="email"></label>
+  <label>Password<input name="pw" type="password" required minlength="6" autocomplete="${up?'new-password':'current-password'}"></label>
+  <p class="err" id="err"></p><button class="btn pri" id="sb" type="button" style="width:100%">${up?'Create account':'Sign in'}</button></div></div>
+  <div class="panel"><p style="margin:0 0 8px;font-weight:600">Joining a team session?</p><div class="row"><input id="jc" aria-label="Room code" placeholder="Room code or invite link" autocomplete="off"><button class="btn" id="jg" type="button">Join</button></div><p class="err" id="je" style="margin:6px 0 0"></p></div>
+  ${store.persist?'<p class="note">Accounts and rooms are saved in this browser only. Use the same browser to manage your rooms again.</p>':'<p class="note">Note: this page cannot save data permanently here (common on SharePoint). Your account lasts while this browser tab stays open, which is enough to run a session.</p>'}</main>`);
+  $$('.tabs button').forEach(b=>b.onclick=()=>authView(b.dataset.m));
+  const go=async()=>{
+    const err=$('#err');
+    const f={get:n=>{const i=$('#f [name='+n+']');return i?i.value:''}},email=f.get('email').trim().toLowerCase(),pw=f.get('pw'),us=LS.get('pp.users',{});
+    if(up&&!f.get('name').trim())return err.textContent='Enter your name.';
+    if(!/^\S+@\S+$/.test(email))return err.textContent='Enter a valid email address.';
+    if(pw.length<6)return err.textContent='Password must be at least 6 characters.';
+    err.textContent='Working…';
+    try{
+      if(!crypto.subtle)throw Error('Sign-in needs a secure (https) page.');
+      if(up){if(us[email])return $('#err').textContent='That email is already registered. Sign in instead.';
+        const salt=rnd(16);us[email]={name:f.get('name').trim(),salt,hash:await hashPw(pw,salt)};LS.set('pp.users',us)}
+      else{const u=us[email];if(!u||u.hash!==await hashPw(pw,u.salt))return $('#err').textContent='Email or password is incorrect.'}
+      LS.set('pp.me',email);route();
+    }catch(x){$('#err').textContent=x.message}
+  };
+  const jj=()=>{const v=$('#jc').value.trim(),m=v.match(/join\/([a-z0-9]+)/i)||v.match(/^([a-z0-9]{6,12})$/i);if(!m)return $('#je').textContent='Enter the room code from your scrum master.';location.hash='#/join/'+m[1].toLowerCase()};
+  $('#jg').onclick=jj;$('#jc').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();jj()}};
+  $('#sb').onclick=go;$('#f').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
+}
+
+function dash(){
+  const u=user(),rs=rooms();
+  view(`<main class="wrap"><div class="bar"><div><h2>Hi, ${esc(u.name)}</h2><span class="cs">Your planning rooms</span></div><button class="btn" id="out">Sign out</button></div>
+  ${direct?'':`<div class="panel"><label style="margin:0">Page address your team opens<input id="pb" placeholder="Paste the address from your browser address bar" value="${esc(base())}"></label><p class="note" style="margin:6px 0 0">Invites include this address and the room code.</p></div>`}
+  <div class="panel row" id="nf"><input id="rn" placeholder="New room name, e.g. Sprint 42 refinement" required maxlength="60"><button class="btn pri" id="nb" type="button">Create room</button></div>
+  <div class="panel">${rs.length?rs.map(r=>`<div class="room"><b>${esc(r.name)}</b><span class="row"><a class="btn pri sm" href="#/host/${r.id}" style="text-decoration:none;display:inline-grid;place-items:center">Open</a><button class="btn sm" data-c="${r.id}">Copy invite link</button><button class="btn sm dng" data-d="${r.id}">Delete</button></span></div>`).join(''):'<p class="note" style="margin:0">No rooms yet. Create one above, then share its invite link with your team.</p>'}</div></main>`);
+  {const pb=$('#pb');if(pb)pb.oninput=()=>LS.set('pp.base',pb.value.trim())}
+  $('#out').onclick=()=>{LS.del('pp.me');route()};
+  const mk=()=>{const n=$('#rn').value.trim();if(!n)return $('#rn').focus();const r=rooms(),id=newId();r.unshift({id,name:n});saveRooms(r);location.hash='#/host/'+id};
+  $('#nb').onclick=mk;$('#nf').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();mk()}};
+  $('.panel:last-child').onclick=e=>{const c=e.target.closest('[data-c]'),d=e.target.closest('[data-d]');
+    if(c)copy(invite(c.dataset.c),c);
+    if(d){if(d.dataset.sure){saveRooms(rooms().filter(r=>r.id!==d.dataset.d));dash()}else{d.dataset.sure=1;d.textContent='Click again to delete'}}};
+}
+
+/* ---------- shared room UI ---------- */
+let peer=null,conns={},gen=0,S=null,H=null,myVote=null,isHost=false,meId='',prevRev=false,round=0;
+function teardown(){gen++;try{peer&&peer.destroy()}catch{}peer=null;conns={};S=null;H=null;myVote=null;prevRev=false;round=0}
+function setConn(t,cls=''){const e=$('#cs');if(e){e.textContent=t;e.className='cs '+cls}}
+
+function shell(host,title){
+  view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2>${esc(title)}</h2><span id="cs" class="cs">Connecting…</span>${host?`<br><span class="cs">Room code: <b>${esc(H.id)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
+  ${host?'<input id="topic" class="topic" maxlength="120" placeholder="What are we estimating? (optional)" aria-label="Story being estimated">':'<p id="topicv" class="topic"></p>'}
+  <section class="table" id="tb" aria-live="polite"></section><p class="stats" id="stats"></p>
+  ${host?'<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div>':''}
+  <section class="deck" id="dk"></section></main>`);
+  $('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
+  $('#tb').onclick=e=>{const k=e.target.closest('[data-k]');if(k&&host)kick(k.dataset.k)};
+  if(host){
+    $('#cp').onclick=e=>copy(invite(H.id),e.target);
+    let t;$('#topic').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{H.topic=e.target.value;push()},300)};
+    $('#rv').onclick=()=>{H.revealed=true;push()};
+    $('#cl').onclick=()=>{Object.values(H.players).forEach(p=>p.vote=null);H.revealed=false;H.round++;myVote=null;push()};
+  }
+}
+
+function render(){
+  if(!S||!$('#tb'))return;
+  const ps=Object.entries(S.players),rev=S.revealed;
+  if(S.round!==round){round=S.round;if(!isHost)myVote=null}
+  $('#tb').className='table'+(rev&&!prevRev?' pop':'');prevRev=rev;
+  $('#tb').innerHTML=ps.map(([id,p])=>{const face=rev&&p.vote!=null;
+    return `<div class="pl${id===meId?' me':''}"><div class="pc ${face?'face':p.voted?'back':'none'}">${face?p.vote:''}</div><div class="nm">${esc(p.name)}${isHost&&id!=='host'?`<button class="x" data-k="${id}" aria-label="Remove ${esc(p.name)}">×</button>`:''}</div></div>`}).join('');
+  const v=ps.map(([,p])=>p.vote).filter(x=>x!=null),voted=ps.filter(([,p])=>p.voted).length;
+  let st=`${voted} of ${ps.length} voted`;
+  if(rev){
+    if(!v.length)st='No estimates were entered.';
+    else{const cnt={};v.forEach(x=>cnt[x]=(cnt[x]||0)+1);const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0]-b[0])[0][0];
+      const avg=(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1);
+      st=Object.keys(cnt).length===1&&v.length>1?`Consensus: <i>${v[0]}</i> points`:`Average <i>${avg}</i> · Most votes <i>${top}</i> · Range ${Math.min(...v)}–${Math.max(...v)}`}
+  }
+  $('#stats').innerHTML=st;
+  $('#dk').innerHTML=DECK.map(n=>`<button class="dc${myVote===n?' sel':''}" data-v="${n}" ${rev?'disabled':''} aria-pressed="${myVote===n}" aria-label="${n} story points">${n}</button>`).join('');
+  if(isHost){$('#rv').disabled=rev||!voted;$('#rv').textContent=rev?'Estimates shown':'Show estimates';$('#cl').className='btn'+(rev?' pri':'')}
+  else $('#topicv').textContent=S.topic||'Waiting for the next story…';
+}
+
+function castVote(n){
+  if(S&&S.revealed)return;
+  myVote=myVote===n?null:n;
+  if(isHost){H.players.host.vote=myVote;push()}
+  else{send({t:'vote',v:myVote});render()}
+}
+
+/* ---------- host: holds the state, relays only what is allowed ---------- */
+const pub=()=>({topic:H.topic,revealed:H.revealed,round:H.round,players:Object.fromEntries(Object.entries(H.players).map(([k,p])=>[k,{name:p.name,voted:p.vote!=null,vote:H.revealed?p.vote:null}]))});
+function push(){S=pub();render();Object.values(conns).forEach(c=>c.open&&c.send({t:'state',s:S}))}
+function kick(id){const c=conns[id];if(c){c.send({t:'kick'});setTimeout(()=>c.close(),100)}delete conns[id];delete H.players[id];push()}
+
+function hostRoom(id){
+  const r=rooms().find(x=>x.id===id);isHost=true;meId='host';
+  H={id,topic:'',revealed:false,round:0,players:{host:{name:user().name+' (host)',vote:null}}};
+  shell(true,r.name);push();
+  if(typeof Peer==='undefined')return setConn('Could not load the PeerJS library. Your network may block cdnjs.cloudflare.com.','bad');const g=gen;peer=new Peer('pp-'+id);
+  peer.on('open',()=>setConn('Room open · keep this tab open while estimating','live'));
+  peer.on('error',e=>setConn(e.type==='unavailable-id'?'This room is already open in another tab or device. Close it there first.':'Connection problem ('+e.type+'). Check your network and reload.','bad'));
+  peer.on('connection',c=>{
+    c.on('data',m=>{if(g!==gen||!m)return;
+      if(m.t==='join'&&typeof m.id==='string'){
+        if(conns[m.id]&&conns[m.id]!==c)try{conns[m.id].close()}catch{}
+        conns[m.id]=c;c.pid=m.id;
+        H.players[m.id]={name:String(m.name||'Guest').slice(0,30),vote:DECK.includes(m.vote)&&!H.revealed?m.vote:(DECK.includes(m.vote)?m.vote:null)};push()}
+      else if(m.t==='vote'&&c.pid&&H.players[c.pid]&&!H.revealed&&(m.v===null||DECK.includes(m.v))){H.players[c.pid].vote=m.v;push()}});
+    c.on('close',()=>{if(g===gen&&c.pid&&conns[c.pid]===c){delete conns[c.pid];delete H.players[c.pid];push()}});
+  });
+}
+
+/* ---------- team member ---------- */
+let sendQ=null;const send=m=>{try{sendQ&&sendQ.open&&sendQ.send(m)}catch{}};
+function joinView(id){
+  isHost=false;
+  meId=rnd(9).replace(/[^a-z0-9]/gi,'x');try{meId=sessionStorage.getItem('pp.cid')||meId;sessionStorage.setItem('pp.cid',meId)}catch{}
+  view(`<main class="wrap narrow"><h1 class="logo">Pointer</h1><p class="lead">You've been invited to a planning poker room. No account needed.</p>
+  <div class="panel" id="jf"><label>Your name<input id="jn" required maxlength="30" autocomplete="name" value="${esc(LS.get('pp.name',''))}"></label><button class="btn pri" id="jb" type="button" style="width:100%">Join room</button></div></main>`);
+  const go=()=>{const n=$('#jn').value.trim();if(!n)return $('#jn').focus();try{LS.set('pp.name',n)}catch{}startClient(id,n)};
+  $('#jb').onclick=go;$('#jf').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
+}
+function startClient(id,name){
+  shell(false,'Planning poker');const g=gen;let kicked=false;
+  const retry=msg=>{if(g!==gen||kicked)return;setConn(msg||'Reconnecting…','bad');try{peer&&peer.destroy()}catch{}setTimeout(connect,3000)};
+  function connect(){
+    if(g!==gen)return;
+    if(typeof Peer==='undefined')return setConn('Could not load the PeerJS library. Your network may block cdnjs.cloudflare.com.','bad');
+    peer=new Peer();
+    peer.on('open',()=>{
+      const c=peer.connect('pp-'+id,{reliable:true});sendQ=c;
+      c.on('open',()=>{c.send({t:'join',id:meId,name,vote:myVote});setConn('Connected','live')});
+      c.on('data',m=>{if(g!==gen||!m)return;
+        if(m.t==='state'){S=m.s;render()}
+        if(m.t==='kick'){kicked=true;setConn('You were removed from this room.','bad');peer.destroy()}});
+      c.on('close',()=>retry());
+    });
+    peer.on('error',e=>retry(e.type==='peer-unavailable'?'Room is not open yet. Waiting for the scrum master…':null));
+  }
+  connect();
+}
+
+/* ---------- router ---------- */
+function route(){
+  teardown();
+  const [,a,b]=location.hash.slice(1).split('/');
+  if(a==='join'&&b)return joinView(b);
+  if(a==='host'&&b){if(user()&&rooms().some(r=>r.id===b))return hostRoom(b);location.hash='#/';return}
+  user()?dash():authView();
+}
+addEventListener('error',e=>{const x=$('#err');if(x)x.textContent='Error: '+e.message});
+addEventListener('unhandledrejection',e=>{const x=$('#err');if(x)x.textContent='Error: '+(e.reason&&e.reason.message||e.reason)});
+addEventListener('hashchange',route);route();
+</script>
+</body>
+</html>
