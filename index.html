@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Pointer – Planning Poker</title>
+<title>Sprint Planning Poker</title>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#eceef4;--ink:#17202e;--mut:#5d6778;--acc:#3b34c4;--gold:#f2b544;--ok:#1f9d6b;--line:#d5d9e4;color-scheme:light}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 "Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 .wrap{max-width:920px;margin:0 auto;padding:20px 16px 40px}.narrow{max-width:460px}
-h1,h2{margin:0;letter-spacing:-.02em}.logo{font-size:44px;font-weight:800;color:var(--acc)}
+h1,h2{margin:0;letter-spacing:-.02em}.logo{font-size:34px;line-height:1.1;font-weight:800;color:var(--acc);margin-bottom:4px}
 .lead{color:var(--mut);margin:6px 0 20px}.note{color:var(--mut);font-size:13px}
 .panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
 label{display:block;font-weight:600;font-size:14px;margin-bottom:12px}
@@ -39,8 +39,16 @@ input.topic{border-style:dashed}
 .pc.none{border:2px dashed #46526a}
 .pc.back{background:repeating-linear-gradient(45deg,var(--acc) 0 6px,#2c2699 6px 12px);border:3px solid #fff}
 .pc.face{background:#fff;color:var(--ink)}
-.pop .pc.face{animation:flip .45s ease-out}@keyframes flip{from{transform:rotateY(90deg)}to{transform:none}}
-@media(prefers-reduced-motion:reduce){.pop .pc.face{animation:none}}
+.pop .pc.face,.pop .v{animation:flip .45s ease-out}@keyframes flip{from{transform:rotateY(90deg)}to{transform:none}}
+.tbl{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.est{width:100%;border-collapse:collapse}
+.est th{text-align:left;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);padding:12px 18px;background:#f6f7fb;border-bottom:1px solid var(--line)}
+.est td{padding:8px 18px;border-top:1px solid var(--line);font-size:17px;height:54px;word-break:break-word}
+.est tbody tr:first-child td{border-top:0}
+.est th:last-child,.est td:last-child{width:38%}
+.est .v{font-size:28px;font-weight:800;color:var(--acc);display:inline-block}
+.est .ok{color:var(--ok);font-weight:600}.est .w{color:var(--mut)}.est .x{color:var(--mut);font-size:18px;margin-left:6px}
+@media(prefers-reduced-motion:reduce){.pop .pc.face,.pop .v{animation:none}}
 .stats{font-weight:600;margin:14px 2px;min-height:1.5em}.stats i{font-style:normal;color:var(--acc)}
 .ctl{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.ctl .btn{flex:1}
 .deck{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
@@ -51,7 +59,24 @@ input.topic{border-style:dashed}
 </head>
 <body>
 <div id="app"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script>/*PEERJS_INLINE*/</script>
+<script>
+/* PeerJS loader: uses an inlined copy if present, otherwise tries three CDNs in turn. */
+const PEER_SRC=['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js','https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js','https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'];
+const PEER_MSG='Could not load PeerJS from jsdelivr, cdnjs or unpkg. Your network or SharePoint policy is blocking external scripts, so it needs to be embedded in the file.';
+let peerP=null;
+function loadPeer(){
+  if(typeof Peer!=='undefined')return Promise.resolve();
+  if(peerP)return peerP;
+  return peerP=(async()=>{
+    for(const u of PEER_SRC){
+      try{await new Promise((ok,no)=>{const s=document.createElement('script'),t=setTimeout(no,8000);s.src=u;s.onload=()=>{clearTimeout(t);ok()};s.onerror=()=>{clearTimeout(t);no()};document.head.appendChild(s)});
+        if(typeof Peer!=='undefined')return}catch{}
+    }
+    peerP=null;throw Error('blocked');
+  })();
+}
+</script>
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -93,7 +118,7 @@ const newId=()=>[...crypto.getRandomValues(new Uint8Array(8))].map(x=>'abcdefghj
 
 function authView(mode='in'){
   const up=mode==='up';
-  view(`<main class="wrap narrow"><h1 class="logo">Pointer</h1>
+  view(`<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1>
   <p class="lead">Planning poker for sprint estimates. Scrum masters sign in to open a room. The team joins from a shared link, no account needed.</p>
   <div class="panel"><div class="tabs"><button data-m="in" class="${up?'':'on'}">Sign in</button><button data-m="up" class="${up?'on':''}">Register</button></div>
   <div id="f">${up?'<label>Your name<input name="name" required autocomplete="name"></label>':''}
@@ -146,10 +171,8 @@ function setConn(t,cls=''){const e=$('#cs');if(e){e.textContent=t;e.className='c
 function shell(host,title){
   view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2>${esc(title)}</h2><span id="cs" class="cs">Connecting…</span>${host?`<br><span class="cs">Room code: <b>${esc(H.id)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
   ${host?'<input id="topic" class="topic" maxlength="120" placeholder="What are we estimating? (optional)" aria-label="Story being estimated">':'<p id="topicv" class="topic"></p>'}
-  <section class="table" id="tb" aria-live="polite"></section><p class="stats" id="stats"></p>
-  ${host?'<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div>':''}
-  <section class="deck" id="dk"></section></main>`);
-  $('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
+  ${host?`<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div><p class="stats" id="stats"></p><section class="tbl" id="tb" aria-live="polite"></section>`:`<section class="table" id="tb" aria-live="polite"></section><p class="stats" id="stats"></p><section class="deck" id="dk"></section>`}</main>`);
+  if(!host)$('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
   $('#tb').onclick=e=>{const k=e.target.closest('[data-k]');if(k&&host)kick(k.dataset.k)};
   if(host){
     $('#cp').onclick=e=>copy(invite(H.id),e.target);
@@ -159,32 +182,38 @@ function shell(host,title){
   }
 }
 
+function hostTable(ps,rev){
+  const cell=p=>rev?(p.vote!=null?`<b class="v">${p.vote}</b>`:'<span class="w">No estimate</span>'):(p.voted?'<span class="ok">✓ Voted</span>':'<span class="w">Waiting…</span>');
+  const rows=ps.length?ps.map(([id,p])=>`<tr><td>${esc(p.name)}<button class="x" data-k="${id}" aria-label="Remove ${esc(p.name)}">×</button></td><td>${cell(p)}</td></tr>`).join('')
+    :`<tr><td colspan="2" class="w" style="height:90px">Waiting for the team to join. Share room code <b>${esc(H.id)}</b>.</td></tr>`;
+  return `<table class="est"><thead><tr><th scope="col">Name</th><th scope="col">Estimate</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
 function render(){
   if(!S||!$('#tb'))return;
   const ps=Object.entries(S.players),rev=S.revealed;
   if(S.round!==round){round=S.round;if(!isHost)myVote=null}
-  $('#tb').className='table'+(rev&&!prevRev?' pop':'');prevRev=rev;
-  $('#tb').innerHTML=ps.map(([id,p])=>{const face=rev&&p.vote!=null;
-    return `<div class="pl${id===meId?' me':''}"><div class="pc ${face?'face':p.voted?'back':'none'}">${face?p.vote:''}</div><div class="nm">${esc(p.name)}${isHost&&id!=='host'?`<button class="x" data-k="${id}" aria-label="Remove ${esc(p.name)}">×</button>`:''}</div></div>`}).join('');
+  $('#tb').className=(isHost?'tbl':'table')+(rev&&!prevRev?' pop':'');prevRev=rev;
+  $('#tb').innerHTML=isHost?hostTable(ps,rev):ps.map(([id,p])=>{const face=rev&&p.vote!=null;
+    return `<div class="pl${id===meId?' me':''}"><div class="pc ${face?'face':p.voted?'back':'none'}">${face?p.vote:''}</div><div class="nm">${esc(p.name)}</div></div>`}).join('');
   const v=ps.map(([,p])=>p.vote).filter(x=>x!=null),voted=ps.filter(([,p])=>p.voted).length;
-  let st=`${voted} of ${ps.length} voted`;
-  if(rev){
+  let st=ps.length?`${voted} of ${ps.length} voted`:'Waiting for the team to join';
+  if(rev&&ps.length){
     if(!v.length)st='No estimates were entered.';
     else{const cnt={};v.forEach(x=>cnt[x]=(cnt[x]||0)+1);const top=Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0]-b[0])[0][0];
       const avg=(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1);
       st=Object.keys(cnt).length===1&&v.length>1?`Consensus: <i>${v[0]}</i> points`:`Average <i>${avg}</i> · Most votes <i>${top}</i> · Range ${Math.min(...v)}–${Math.max(...v)}`}
   }
   $('#stats').innerHTML=st;
-  $('#dk').innerHTML=DECK.map(n=>`<button class="dc${myVote===n?' sel':''}" data-v="${n}" ${rev?'disabled':''} aria-pressed="${myVote===n}" aria-label="${n} story points">${n}</button>`).join('');
   if(isHost){$('#rv').disabled=rev||!voted;$('#rv').textContent=rev?'Estimates shown':'Show estimates';$('#cl').className='btn'+(rev?' pri':'')}
-  else $('#topicv').textContent=S.topic||'Waiting for the next story…';
+  else{
+    $('#dk').innerHTML=DECK.map(n=>`<button class="dc${myVote===n?' sel':''}" data-v="${n}" ${rev?'disabled':''} aria-pressed="${myVote===n}" aria-label="${n} story points">${n}</button>`).join('');
+    $('#topicv').textContent=S.topic||'Waiting for the next story…';
+  }
 }
 
 function castVote(n){
-  if(S&&S.revealed)return;
-  myVote=myVote===n?null:n;
-  if(isHost){H.players.host.vote=myVote;push()}
-  else{send({t:'vote',v:myVote});render()}
+  if(isHost||(S&&S.revealed))return;
+  myVote=myVote===n?null:n;send({t:'vote',v:myVote});render();
 }
 
 /* ---------- host: holds the state, relays only what is allowed ---------- */
@@ -194,9 +223,12 @@ function kick(id){const c=conns[id];if(c){c.send({t:'kick'});setTimeout(()=>c.cl
 
 function hostRoom(id){
   const r=rooms().find(x=>x.id===id);isHost=true;meId='host';
-  H={id,topic:'',revealed:false,round:0,players:{host:{name:user().name+' (host)',vote:null}}};
+  H={id,topic:'',revealed:false,round:0,players:{}};
   shell(true,r.name);push();
-  if(typeof Peer==='undefined')return setConn('Could not load the PeerJS library. Your network may block cdnjs.cloudflare.com.','bad');const g=gen;peer=new Peer('pp-'+id);
+  const g=gen;setConn('Loading…');loadPeer().then(()=>g===gen&&hostPeer(id,g),()=>setConn(PEER_MSG,'bad'));
+}
+function hostPeer(id,g){
+  peer=new Peer('pp-'+id);
   peer.on('open',()=>setConn('Room open · keep this tab open while estimating','live'));
   peer.on('error',e=>setConn(e.type==='unavailable-id'?'This room is already open in another tab or device. Close it there first.':'Connection problem ('+e.type+'). Check your network and reload.','bad'));
   peer.on('connection',c=>{
@@ -215,17 +247,19 @@ let sendQ=null;const send=m=>{try{sendQ&&sendQ.open&&sendQ.send(m)}catch{}};
 function joinView(id){
   isHost=false;
   meId=rnd(9).replace(/[^a-z0-9]/gi,'x');try{meId=sessionStorage.getItem('pp.cid')||meId;sessionStorage.setItem('pp.cid',meId)}catch{}
-  view(`<main class="wrap narrow"><h1 class="logo">Pointer</h1><p class="lead">You've been invited to a planning poker room. No account needed.</p>
+  view(`<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1><p class="lead">You've been invited to a planning poker room. No account needed.</p>
   <div class="panel" id="jf"><label>Your name<input id="jn" required maxlength="30" autocomplete="name" value="${esc(LS.get('pp.name',''))}"></label><button class="btn pri" id="jb" type="button" style="width:100%">Join room</button></div></main>`);
   const go=()=>{const n=$('#jn').value.trim();if(!n)return $('#jn').focus();try{LS.set('pp.name',n)}catch{}startClient(id,n)};
   $('#jb').onclick=go;$('#jf').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
 }
 function startClient(id,name){
-  shell(false,'Planning poker');const g=gen;let kicked=false;
+  shell(false,'Sprint Planning Poker');const g=gen;let kicked=false;
   const retry=msg=>{if(g!==gen||kicked)return;setConn(msg||'Reconnecting…','bad');try{peer&&peer.destroy()}catch{}setTimeout(connect,3000)};
   function connect(){
     if(g!==gen)return;
-    if(typeof Peer==='undefined')return setConn('Could not load the PeerJS library. Your network may block cdnjs.cloudflare.com.','bad');
+    setConn('Loading…');loadPeer().then(()=>g===gen&&peerUp(),()=>setConn(PEER_MSG,'bad'));
+  }
+  function peerUp(){
     peer=new Peer();
     peer.on('open',()=>{
       const c=peer.connect('pp-'+id,{reliable:true});sendQ=c;
