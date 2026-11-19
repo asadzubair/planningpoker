@@ -49,6 +49,7 @@ input.topic{border-style:dashed}
 .est .v{font-size:28px;font-weight:800;color:var(--acc);display:inline-block}
 .est .ok{color:var(--ok);font-weight:600}.est .w{color:var(--mut)}.est .x{color:var(--mut);font-size:18px;margin-left:6px}
 @media(prefers-reduced-motion:reduce){.pop .pc.face,.pop .v{animation:none}}
+.lnk{background:none;border:0;color:var(--acc);font:inherit;font-size:13px;padding:0;cursor:pointer;text-decoration:underline}
 .stats{font-weight:600;margin:14px 2px;min-height:1.5em}.stats i{font-style:normal;color:var(--acc)}
 .ctl{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.ctl .btn{flex:1}
 .deck{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
@@ -169,9 +170,10 @@ function teardown(){gen++;try{peer&&peer.destroy()}catch{}peer=null;conns={};S=n
 function setConn(t,cls=''){const e=$('#cs');if(e){e.textContent=t;e.className='cs '+cls}}
 
 function shell(host,title){
-  view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2>${esc(title)}</h2><span id="cs" class="cs">Connecting…</span>${host?`<br><span class="cs">Room code: <b>${esc(H.id)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
+  view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2>${esc(title)}</h2><span id="cs" class="cs">Connecting…</span> <button class="lnk" id="nc" type="button">Test my connection</button><span id="nr" class="cs" style="display:block"></span>${host?`<br><span class="cs">Room code: <b>${esc(H.id)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
   ${host?'<input id="topic" class="topic" maxlength="120" placeholder="What are we estimating? (optional)" aria-label="Story being estimated">':'<p id="topicv" class="topic"></p>'}
   ${host?`<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div><p class="stats" id="stats"></p><section class="tbl" id="tb" aria-live="polite"></section>`:`<section class="table" id="tb" aria-live="polite"><p style="color:#8b95a8;margin:0;align-self:center">Connecting to the room…</p></section><p class="stats" id="stats"></p><section class="deck" id="dk"></section>`}</main>`);
+  $('#nc').onclick=netCheck;
   if(!host)$('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
   $('#tb').onclick=e=>{const k=e.target.closest('[data-k]');if(k&&host)kick(k.dataset.k)};
   if(host){
@@ -270,7 +272,7 @@ function startClient(id,name){
       if(!live(a))return;clearTimeout(timer);
       setConn('Connecting to the room…');
       const c=peer.connect('pp-'+id,{reliable:true});sendQ=c;
-      timer=setTimeout(()=>retry(a,'Could not reach the room. Make sure the scrum master has it open, and that your network allows peer-to-peer connections. Retrying…'),15000);
+      timer=setTimeout(()=>{const st=c.peerConnection?c.peerConnection.iceConnectionState:'no answer from room';retry(a,'Could not reach the room (state: '+st+'). Make sure the scrum master has it open, and that your network allows peer-to-peer connections. Use "Test my connection" for details. Retrying…')},15000);
       c.on('open',()=>{if(!live(a))return;clearTimeout(timer);c.send({t:'join',id:meId,name,vote:myVote});setConn('Connected','live')});
       c.on('data',m=>{if(!live(a)||!m)return;
         if(m.t==='state'){S=m.s;render()}
@@ -281,6 +283,27 @@ function startClient(id,name){
     peer.on('error',e=>retry(a,e.type==='peer-unavailable'?'Room is not open yet. Waiting for the scrum master…':'Connection problem ('+e.type+'). Retrying…'));
   }
   connect();
+}
+
+/* ---------- connection test ---------- */
+async function netCheck(){
+  const out=$('#nr');if(!out)return;out.textContent='Testing…';
+  try{
+    if(typeof RTCPeerConnection==='undefined')throw Error('This browser has WebRTC disabled.');
+    await loadPeer();
+    const tmp=new Peer(),cfg=(tmp.options&&tmp.options.config)||{iceServers:[{urls:'stun:stun.l.google.com:19302'}]};try{tmp.destroy()}catch{}
+    const pc=new RTCPeerConnection({iceServers:cfg.iceServers}),seen=new Set();
+    pc.createDataChannel('t');
+    pc.onicecandidate=e=>{if(e.candidate){const m=/ typ (\w+)/.exec(e.candidate.candidate);if(m)seen.add(m[1])}};
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise(r=>{const t=setTimeout(r,7000);pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete'){clearTimeout(t);r()}}});
+    pc.close();
+    const f=[...seen].join(', ')||'none';
+    out.textContent=!seen.size?'No connection candidates found. WebRTC may be blocked by browser settings, an extension or company policy.'
+      :seen.has('relay')?'Good: the relay server is reachable, so connections should work (found: '+f+').'
+      :seen.has('srflx')?'Partly OK (found: '+f+'). No relay was reachable, so connections may fail behind strict firewalls.'
+      :'Problem (found: '+f+'). Only local addresses were found, so this network blocks the traffic browsers need to connect to each other. Try another network, such as a phone hotspot, or ask IT to allow WebRTC (UDP) and TURN.';
+  }catch(e){out.textContent='Test failed: '+e.message}
 }
 
 /* ---------- router ---------- */
