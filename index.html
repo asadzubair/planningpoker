@@ -55,12 +55,10 @@ input.topic{border-style:dashed}
 .dc{aspect-ratio:5/7;font:inherit;font-size:clamp(22px,6vw,38px);font-weight:800;background:#fff;color:var(--ink);border:2px solid var(--line);border-radius:12px;cursor:pointer;transition:transform .12s}
 .dc.sel{transform:translateY(-10px);border-color:var(--gold);box-shadow:0 0 0 3px var(--gold);color:var(--acc)}
 .dc:disabled{opacity:.5;cursor:not-allowed}
-#ver{text-align:center;font-size:12px;color:var(--mut);padding:0 0 16px}
 </style>
 </head>
 <body>
 <div id="app"></div>
-<div id="ver">Version 5 · host table view</div>
 <script>/*PEERJS_INLINE*/</script>
 <script>
 /* PeerJS loader: uses an inlined copy if present, otherwise tries three CDNs in turn. */
@@ -173,7 +171,7 @@ function setConn(t,cls=''){const e=$('#cs');if(e){e.textContent=t;e.className='c
 function shell(host,title){
   view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2>${esc(title)}</h2><span id="cs" class="cs">Connecting…</span>${host?`<br><span class="cs">Room code: <b>${esc(H.id)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
   ${host?'<input id="topic" class="topic" maxlength="120" placeholder="What are we estimating? (optional)" aria-label="Story being estimated">':'<p id="topicv" class="topic"></p>'}
-  ${host?`<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div><p class="stats" id="stats"></p><section class="tbl" id="tb" aria-live="polite"></section>`:`<section class="table" id="tb" aria-live="polite"></section><p class="stats" id="stats"></p><section class="deck" id="dk"></section>`}</main>`);
+  ${host?`<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div><p class="stats" id="stats"></p><section class="tbl" id="tb" aria-live="polite"></section>`:`<section class="table" id="tb" aria-live="polite"><p style="color:#8b95a8;margin:0;align-self:center">Connecting to the room…</p></section><p class="stats" id="stats"></p><section class="deck" id="dk"></section>`}</main>`);
   if(!host)$('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
   $('#tb').onclick=e=>{const k=e.target.closest('[data-k]');if(k&&host)kick(k.dataset.k)};
   if(host){
@@ -255,23 +253,32 @@ function joinView(id){
   $('#jb').onclick=go;$('#jf').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
 }
 function startClient(id,name){
-  shell(false,'Sprint Planning Poker');const g=gen;let kicked=false;
-  const retry=msg=>{if(g!==gen||kicked)return;setConn(msg||'Reconnecting…','bad');try{peer&&peer.destroy()}catch{}setTimeout(connect,3000)};
+  shell(false,'Sprint Planning Poker');
+  const g=gen;let kicked=false,att=0,timer=null;
+  const live=a=>g===gen&&a===att&&!kicked;
+  const retry=(a,msg)=>{if(!live(a))return;att++;clearTimeout(timer);setConn(msg||'Reconnecting…','bad');try{peer&&peer.destroy()}catch{}setTimeout(connect,3000)};
   function connect(){
-    if(g!==gen)return;
-    setConn('Loading…');loadPeer().then(()=>g===gen&&peerUp(),()=>setConn(PEER_MSG,'bad'));
+    if(g!==gen||kicked)return;
+    const a=++att;setConn('Loading…');
+    loadPeer().then(()=>live(a)&&peerUp(a),()=>setConn(PEER_MSG,'bad'));
   }
-  function peerUp(){
+  function peerUp(a){
+    setConn('Contacting the connection service…');
     peer=new Peer();
+    timer=setTimeout(()=>retry(a,'Cannot reach the PeerJS connection service (0.peerjs.com). Your network may be blocking it. Retrying…'),12000);
     peer.on('open',()=>{
+      if(!live(a))return;clearTimeout(timer);
+      setConn('Connecting to the room…');
       const c=peer.connect('pp-'+id,{reliable:true});sendQ=c;
-      c.on('open',()=>{c.send({t:'join',id:meId,name,vote:myVote});setConn('Connected','live')});
-      c.on('data',m=>{if(g!==gen||!m)return;
+      timer=setTimeout(()=>retry(a,'Could not reach the room. Make sure the scrum master has it open, and that your network allows peer-to-peer connections. Retrying…'),15000);
+      c.on('open',()=>{if(!live(a))return;clearTimeout(timer);c.send({t:'join',id:meId,name,vote:myVote});setConn('Connected','live')});
+      c.on('data',m=>{if(!live(a)||!m)return;
         if(m.t==='state'){S=m.s;render()}
         if(m.t==='kick'){kicked=true;setConn('You were removed from this room.','bad');peer.destroy()}});
-      c.on('close',()=>retry());
+      c.on('close',()=>retry(a));
+      c.on('error',e=>retry(a,'Connection error ('+e.type+'). Retrying…'));
     });
-    peer.on('error',e=>retry(e.type==='peer-unavailable'?'Room is not open yet. Waiting for the scrum master…':null));
+    peer.on('error',e=>retry(a,e.type==='peer-unavailable'?'Room is not open yet. Waiting for the scrum master…':'Connection problem ('+e.type+'). Retrying…'));
   }
   connect();
 }
