@@ -228,7 +228,7 @@ function setConn(t,cls=''){const e=$('#cs');if(e){e.textContent=t;e.className='c
 function shell(host,title){
   view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2>${esc(title)}</h2><span id="cs" class="cs">Connecting…</span> <button class="lnk" id="nc" type="button">Test my connection</button><span id="nr" class="cs" style="display:block"></span>${host?`<br><span class="cs">Room code: <b>${esc(H.id)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
   ${host?'<input id="topic" class="topic" maxlength="120" placeholder="What are we estimating? (optional)" aria-label="Story being estimated">':'<p id="topicv" class="topic"></p>'}
-  ${host?`<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div><p class="stats" id="stats"></p><section class="tbl" id="tb" aria-live="polite"></section>`:`<section class="table" id="tb" aria-live="polite"><p style="color:#8b95a8;margin:0;align-self:center">Connecting to the room…</p></section><p class="stats" id="stats"></p><section class="deck" id="dk"></section>`}</main>`);
+  ${host?`<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div><p class="stats" id="stats"></p><section class="tbl" id="tb" aria-live="polite"></section>`:`<section class="table" id="tb" aria-live="polite"><p style="color:#8b95a8;margin:0;align-self:center">Connecting to the room…</p></section><p class="stats" id="stats"></p><section class="deck" id="dk"></section><p class="note" id="hint" style="margin:10px 2px 0;min-height:1.4em"></p>`}</main>`);
   $('#nc').onclick=netCheck;
   if(!host)$('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
   $('#tb').onclick=e=>{const k=e.target.closest('[data-k]');if(k&&host)kick(k.dataset.k)};
@@ -264,19 +264,25 @@ function render(){
   $('#stats').innerHTML=st;
   if(isHost){$('#rv').disabled=rev||!voted;$('#rv').textContent=rev?'Estimates shown':'Show estimates';$('#cl').className='btn'+(rev?' pri':'')}
   else{
-    $('#dk').innerHTML=DECK.map(n=>`<button class="dc${myVote===n?' sel':''}" data-v="${n}" ${rev?'disabled':''} aria-pressed="${myVote===n}" aria-label="${n} story points">${n}</button>`).join('');
+    const mine=S.players[meId],lock=rev&&!!(mine&&mine.voted);
+    $('#hint').textContent=!rev?'':lock?'Estimates are shown. Voting reopens when the scrum master clears the round.':'Estimates are already shown. Pick a card to add yours.';
+    $('#dk').innerHTML=DECK.map(n=>`<button class="dc${myVote===n?' sel':''}" data-v="${n}" ${lock?'disabled':''} aria-pressed="${myVote===n}" aria-label="${n} story points">${n}</button>`).join('');
     $('#topicv').textContent=S.topic||'Waiting for the next story…';
   }
 }
 
 function castVote(n){
-  if(isHost||(S&&S.revealed))return;
-  myVote=myVote===n?null:n;send({t:'vote',v:myVote});render();
+  if(isHost||!S)return;
+  const mine=S.players[meId];
+  if(S.revealed&&mine&&mine.voted)return;
+  const prev=myVote;myVote=(myVote===n&&!S.revealed)?null:n;
+  if(!send({t:'vote',v:myVote})){myVote=prev;setConn('Not connected to the room yet, so your estimate was not sent. Retrying…','bad')}
+  render();
 }
 
 /* ---------- host: holds the state, relays only what is allowed ---------- */
 const pub=()=>({topic:H.topic,revealed:H.revealed,round:H.round,players:Object.fromEntries(Object.entries(H.players).map(([k,p])=>[k,{name:p.name,voted:p.vote!=null,vote:H.revealed?p.vote:null}]))});
-function push(){S=pub();render();Object.values(conns).forEach(c=>c.open&&c.send({t:'state',s:S}))}
+function push(){S=pub();render();Object.values(conns).forEach(c=>{try{c.open&&c.send({t:'state',s:S})}catch{}})}
 function kick(id){const c=conns[id];if(c){c.send({t:'kick'});setTimeout(()=>c.close(),100)}delete conns[id];delete H.players[id];push()}
 
 function hostRoom(id){
@@ -295,16 +301,16 @@ function hostPeer(id,g){
         if(conns[m.id]&&conns[m.id]!==c)try{conns[m.id].close()}catch{}
         conns[m.id]=c;c.pid=m.id;
         H.players[m.id]={name:String(m.name||'Guest').slice(0,30),vote:DECK.includes(m.vote)&&!H.revealed?m.vote:(DECK.includes(m.vote)?m.vote:null)};push()}
-      else if(m.t==='vote'&&c.pid&&H.players[c.pid]&&!H.revealed&&(m.v===null||DECK.includes(m.v))){H.players[c.pid].vote=m.v;push()}});
+      else if(m.t==='vote'&&c.pid&&H.players[c.pid]){const p=H.players[c.pid];if(H.revealed?(p.vote==null&&DECK.includes(m.v)):(m.v===null||DECK.includes(m.v))){p.vote=m.v;push()}}});
     c.on('close',()=>{if(g===gen&&c.pid&&conns[c.pid]===c){delete conns[c.pid];delete H.players[c.pid];push()}});
   });
 }
 
 /* ---------- team member ---------- */
-let sendQ=null;const send=m=>{try{sendQ&&sendQ.open&&sendQ.send(m)}catch{}};
+let sendQ=null;const send=m=>{try{if(sendQ&&sendQ.open){sendQ.send(m);return true}}catch{}return false};
 function joinView(id){
   isHost=false;
-  meId=rnd(9).replace(/[^a-z0-9]/gi,'x');try{meId=sessionStorage.getItem('pp.cid')||meId;sessionStorage.setItem('pp.cid',meId)}catch{}
+  meId=rnd(9).replace(/[^a-z0-9]/gi,'x');
   view(`<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1><p class="lead">You've been invited to a planning poker room. No account needed.</p>
   <div class="panel" id="jf"><label>Your name<input id="jn" required maxlength="30" autocomplete="name" value="${esc(LS.get('pp.name',''))}"></label><button class="btn pri" id="jb" type="button" style="width:100%">Join room</button></div></main>`);
   const go=()=>{const n=$('#jn').value.trim();if(!n)return $('#jn').focus();try{LS.set('pp.name',n)}catch{}startClient(id,n)};
@@ -331,7 +337,7 @@ function startClient(id,name){
       timer=setTimeout(()=>{const st=c.peerConnection?c.peerConnection.iceConnectionState:'no answer from room';retry(a,'Could not reach the room (state: '+st+'). Make sure the scrum master has it open, and that your network allows peer-to-peer connections. Use "Test my connection" for details. Retrying…')},15000);
       c.on('open',()=>{if(!live(a))return;clearTimeout(timer);c.send({t:'join',id:meId,name,vote:myVote});setConn('Connected','live')});
       c.on('data',m=>{if(!live(a)||!m)return;
-        if(m.t==='state'){S=m.s;render()}
+        if(m.t==='state'){S=m.s;render();const me=S.players[meId];if(!me)send({t:'join',id:meId,name,vote:myVote});else if(myVote!=null&&!me.voted)send({t:'vote',v:myVote})}
         if(m.t==='kick'){kicked=true;setConn('You were removed from this room.','bad');peer.destroy()}});
       c.on('close',()=>retry(a));
       c.on('error',e=>retry(a,'Connection error ('+e.type+'). Retrying…'));
