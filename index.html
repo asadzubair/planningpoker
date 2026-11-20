@@ -49,6 +49,8 @@ input.topic{border-style:dashed}
 .est .v{font-size:28px;font-weight:800;color:var(--acc);display:inline-block}
 .est .ok{color:var(--ok);font-weight:600}.est .w{color:var(--mut)}.est .x{color:var(--mut);font-size:18px;margin-left:6px}
 @media(prefers-reduced-motion:reduce){.pop .pc.face,.pop .v{animation:none}}
+select,textarea{font:inherit;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+textarea{width:100%;font:13px/1.4 ui-monospace,Consolas,monospace;resize:vertical}
 .lnk{background:none;border:0;color:var(--acc);font:inherit;font-size:13px;padding:0;cursor:pointer;text-decoration:underline}
 .stats{font-weight:600;margin:14px 2px;min-height:1.5em}.stats i{font-style:normal;color:var(--acc)}
 .ctl{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}.ctl .btn{flex:1}
@@ -65,6 +67,15 @@ input.topic{border-style:dashed}
 /* PeerJS loader: uses an inlined copy if present, otherwise tries three CDNs in turn. */
 const PEER_SRC=['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js','https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js','https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'];
 const PEER_MSG='Could not load PeerJS from jsdelivr, cdnjs or unpkg. Your network or SharePoint policy is blocking external scripts, so it needs to be embedded in the file.';
+/* Optional TURN relay for networks that block direct browser-to-browser traffic.
+   Paste the details from your TURN provider, for example:
+   const ICE_SERVERS=[{urls:['turn:turn.example.com:443?transport=tcp'],username:'USER',credential:'PASSWORD'}];
+   Anyone who can open this page can read these values, so use a free or low-limit account. */
+const ICE_SERVERS=[];
+const peerOpts=()=>{
+  const d=(window.peerjs&&peerjs.util&&peerjs.util.defaultConfig)||{iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+  return ICE_SERVERS.length?{config:{...d,iceServers:[...d.iceServers,...ICE_SERVERS]}}:{};
+};
 let peerP=null;
 function loadPeer(){
   if(typeof Peer!=='undefined')return Promise.resolve();
@@ -112,7 +123,27 @@ async function hashPw(pw,salt){
   const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:Uint8Array.from(atob(salt),c=>c.charCodeAt(0)),iterations:150000,hash:'SHA-256'},k,256);
   return b64(bits);
 }
-const user=()=>{const e=LS.get('pp.me');const u=LS.get('pp.users',{})[e];return u?{email:e,...u}:null};
+/* ---------- roles: superadmin / admin may host; everyone else can only join ---------- */
+const ROOT='asad.zubair@10pearls.com'; /* owner: always a superadmin, can never be removed */
+const ROLES_DEFAULT={superadmins:[ROOT],admins:[]};
+let published=null,rolesErr='';
+const clean=r=>{
+  const f=a=>[...new Set((Array.isArray(a)?a:[]).map(x=>String(x).trim().toLowerCase()).filter(x=>/^\S+@\S+$/.test(x)))];
+  const sa=f(r&&r.superadmins).filter(x=>x!==ROOT);sa.unshift(ROOT);
+  return{superadmins:sa,admins:f(r&&r.admins).filter(x=>!sa.includes(x))};
+};
+async function loadRoles(){
+  published=clean(ROLES_DEFAULT);rolesErr='';
+  if(!direct)return;
+  try{const c=new AbortController(),t=setTimeout(()=>c.abort(),4000);
+    const r=await fetch('roles.json?t='+Date.now(),{cache:'no-store',signal:c.signal});clearTimeout(t);
+    if(!r.ok)throw 0;published=clean(await r.json());
+  }catch{rolesErr='Could not load the approved hosts list (roles.json). Only the owner can sign in until it is available.'}
+}
+const draft=()=>LS.get('pp.rolesDraft',null);
+const roles=()=>clean(draft()||published||ROLES_DEFAULT);
+const roleOf=e=>{e=(e||'').trim().toLowerCase();if(e===ROOT)return'superadmin';const r=roles();return r.superadmins.includes(e)?'superadmin':r.admins.includes(e)?'admin':null};
+const user=()=>{const e=LS.get('pp.me');const u=LS.get('pp.users',{})[e];const role=roleOf(e);return u&&role?{email:e,...u,role}:null};
 const rooms=()=>LS.get('pp.rooms.'+user().email,[]);
 const saveRooms=r=>LS.set('pp.rooms.'+user().email,r);
 const newId=()=>[...crypto.getRandomValues(new Uint8Array(8))].map(x=>'abcdefghjkmnpqrstuvwxyz23456789'[x%31]).join('');
@@ -120,20 +151,21 @@ const newId=()=>[...crypto.getRandomValues(new Uint8Array(8))].map(x=>'abcdefghj
 function authView(mode='in'){
   const up=mode==='up';
   view(`<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1>
-  <p class="lead">Planning poker for sprint estimates. Scrum masters sign in to open a room. The team joins from a shared link, no account needed.</p>
+  <p class="lead">Planning poker for sprint estimates. Approved hosts sign in to open a room. Everyone else joins with a room code or invite link, no account needed.</p>
   <div class="panel"><div class="tabs"><button data-m="in" class="${up?'':'on'}">Sign in</button><button data-m="up" class="${up?'on':''}">Register</button></div>
   <div id="f">${up?'<label>Your name<input name="name" required autocomplete="name"></label>':''}
   <label>Email<input name="email" type="email" required autocomplete="email"></label>
   <label>Password<input name="pw" type="password" required minlength="6" autocomplete="${up?'new-password':'current-password'}"></label>
   <p class="err" id="err"></p><button class="btn pri" id="sb" type="button" style="width:100%">${up?'Create account':'Sign in'}</button></div></div>
   <div class="panel"><p style="margin:0 0 8px;font-weight:600">Joining a team session?</p><div class="row"><input id="jc" aria-label="Room code" placeholder="Room code or invite link" autocomplete="off"><button class="btn" id="jg" type="button">Join</button></div><p class="err" id="je" style="margin:6px 0 0"></p></div>
-  ${store.persist?'<p class="note">Accounts and rooms are saved in this browser only. Use the same browser to manage your rooms again.</p>':'<p class="note">Note: this page cannot save data permanently here (common on SharePoint). Your account lasts while this browser tab stays open, which is enough to run a session.</p>'}</main>`);
+  ${store.persist?'<p class="note">Accounts and rooms are saved in this browser only. Use the same browser to manage your rooms again.</p>':'<p class="note">Note: this page cannot save data permanently here (common on SharePoint). Your account lasts while this browser tab stays open, which is enough to run a session.</p>'}${rolesErr?`<p class="err">${esc(rolesErr)}</p>`:''}</main>`);
   $$('.tabs button').forEach(b=>b.onclick=()=>authView(b.dataset.m));
   const go=async()=>{
     const err=$('#err');
     const f={get:n=>{const i=$('#f [name='+n+']');return i?i.value:''}},email=f.get('email').trim().toLowerCase(),pw=f.get('pw'),us=LS.get('pp.users',{});
     if(up&&!f.get('name').trim())return err.textContent='Enter your name.';
     if(!/^\S+@\S+$/.test(email))return err.textContent='Enter a valid email address.';
+    if(!roleOf(email))return err.textContent='This email is not approved to host. To join a session, use the room code below.';
     if(pw.length<6)return err.textContent='Password must be at least 6 characters.';
     err.textContent='Working…';
     try{
@@ -151,7 +183,7 @@ function authView(mode='in'){
 
 function dash(){
   const u=user(),rs=rooms();
-  view(`<main class="wrap"><div class="bar"><div><h2>Hi, ${esc(u.name)}</h2><span class="cs">Your planning rooms</span></div><button class="btn" id="out">Sign out</button></div>
+  view(`<main class="wrap"><div class="bar"><div><h2>Hi, ${esc(u.name)}</h2><span class="cs">${u.role==='superadmin'?'Superadmin':'Admin'} · Your planning rooms</span></div>${u.role==='superadmin'?'<a class="btn" href="#/admin" style="text-decoration:none;display:inline-grid;place-items:center">Admin area</a>':''}<button class="btn" id="out">Sign out</button></div>
   ${direct?'':`<div class="panel"><label style="margin:0">Page address your team opens<input id="pb" placeholder="Paste the address from your browser address bar" value="${esc(base())}"></label><p class="note" style="margin:6px 0 0">Invites include this address and the room code.</p></div>`}
   <div class="panel row" id="nf"><input id="rn" placeholder="New room name, e.g. Sprint 42 refinement" required maxlength="60"><button class="btn pri" id="nb" type="button">Create room</button></div>
   <div class="panel">${rs.length?rs.map(r=>`<div class="room"><b>${esc(r.name)}</b><span class="row"><a class="btn pri sm" href="#/host/${r.id}" style="text-decoration:none;display:inline-grid;place-items:center">Open</a><button class="btn sm" data-c="${r.id}">Copy invite link</button><button class="btn sm dng" data-d="${r.id}">Delete</button></span></div>`).join(''):'<p class="note" style="margin:0">No rooms yet. Create one above, then share its invite link with your team.</p>'}</div></main>`);
@@ -162,6 +194,30 @@ function dash(){
   $('.panel:last-child').onclick=e=>{const c=e.target.closest('[data-c]'),d=e.target.closest('[data-d]');
     if(c)copy(invite(c.dataset.c),c);
     if(d){if(d.dataset.sure){saveRooms(rooms().filter(r=>r.id!==d.dataset.d));dash()}else{d.dataset.sure=1;d.textContent='Click again to delete'}}};
+}
+
+function adminView(){
+  const u=user(),r=roles(),pub=clean(published||ROLES_DEFAULT),json=JSON.stringify(r,null,2);
+  const dirty=!!draft()&&JSON.stringify(clean(draft()))!==JSON.stringify(pub);
+  const row=(e,role)=>`<div class="room"><span><b>${esc(e)}</b> <span class="cs">${role}${e===ROOT?' · owner, protected':''}${e===u.email?' · you':''}</span></span>${e===ROOT||e===u.email?'':`<button class="btn sm dng" data-r="${esc(e)}">Remove</button>`}</div>`;
+  view(`<main class="wrap"><div class="bar"><a href="#/" class="back">‹ Rooms</a><div><h2>Admin area</h2><span class="cs">Who can host planning rooms</span></div></div>
+  <div class="panel" id="af"><p style="margin:0 0 10px;font-weight:600">Add a person</p><div class="row"><input id="ae" type="email" placeholder="name@company.com" aria-label="Email address" autocomplete="off"><select id="ar" aria-label="Role"><option value="admin">Admin</option><option value="superadmin">Superadmin</option></select><button class="btn pri" id="ab" type="button">Add</button></div><p class="err" id="aerr" style="margin:6px 0 0"></p></div>
+  <div class="panel" id="lst"><p style="margin:0 0 4px;font-weight:600">Superadmins</p>${r.superadmins.map(e=>row(e,'Superadmin')).join('')}<p style="margin:16px 0 4px;font-weight:600">Admins</p>${r.admins.length?r.admins.map(e=>row(e,'Admin')).join(''):'<p class="note" style="margin:0">No admins yet.</p>'}</div>
+  <div class="panel"><p style="margin:0 0 6px;font-weight:600">Publish for everyone</p><p class="note" style="margin:0 0 8px">${dirty?'<b>You have unpublished changes.</b> They apply only in this browser until roles.json is replaced.':'This list matches the published roles.json.'} To apply a change for everyone, replace <b>roles.json</b> next to this page (in your GitHub repository) with the text below.</p><textarea id="rj" readonly rows="8" aria-label="roles.json contents">${esc(json)}</textarea><div class="row" style="margin-top:8px"><button class="btn sm" id="cj" type="button">Copy JSON</button><button class="btn sm" id="dj" type="button">Download roles.json</button>${draft()?'<button class="btn sm dng" id="xj" type="button">Discard my changes</button>':''}</div></div></main>`);
+  const save=x=>{const c=clean(x);JSON.stringify(c)===JSON.stringify(pub)?LS.del('pp.rolesDraft'):LS.set('pp.rolesDraft',c);adminView()};
+  const add=()=>{const e=$('#ae').value.trim().toLowerCase(),role=$('#ar').value,err=$('#aerr');
+    if(!/^\S+@\S+$/.test(e))return err.textContent='Enter a valid email address.';
+    if(e===ROOT)return err.textContent='The owner is always a superadmin and cannot be changed.';
+    if(roleOf(e))return err.textContent=e+' already has a role. Remove them first to change it.';
+    const n=clean(roles());n[role==='superadmin'?'superadmins':'admins'].push(e);save(n)};
+  $('#ab').onclick=add;$('#af').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();add()}};
+  $('#lst').onclick=e=>{const b=e.target.closest('[data-r]');if(!b)return;const m=b.dataset.r;
+    if(m===ROOT||m===u.email)return;
+    if(!b.dataset.sure){b.dataset.sure=1;b.textContent='Click again to remove';return}
+    const n=clean(roles());n.superadmins=n.superadmins.filter(x=>x!==m);n.admins=n.admins.filter(x=>x!==m);save(n)};
+  $('#cj').onclick=e=>copy(json,e.target);
+  $('#dj').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([json],{type:'application/json'}));a.download='roles.json';document.body.appendChild(a);a.click();a.remove()};
+  const xj=$('#xj');if(xj)xj.onclick=()=>{LS.del('pp.rolesDraft');adminView()};
 }
 
 /* ---------- shared room UI ---------- */
@@ -230,7 +286,7 @@ function hostRoom(id){
   const g=gen;setConn('Loading…');loadPeer().then(()=>g===gen&&hostPeer(id,g),()=>setConn(PEER_MSG,'bad'));
 }
 function hostPeer(id,g){
-  peer=new Peer('pp-'+id);
+  peer=new Peer('pp-'+id,peerOpts());
   peer.on('open',()=>setConn('Room open · keep this tab open while estimating','live'));
   peer.on('error',e=>setConn(e.type==='unavailable-id'?'This room is already open in another tab or device. Close it there first.':'Connection problem ('+e.type+'). Check your network and reload.','bad'));
   peer.on('connection',c=>{
@@ -266,7 +322,7 @@ function startClient(id,name){
   }
   function peerUp(a){
     setConn('Contacting the connection service…');
-    peer=new Peer();
+    peer=new Peer(undefined,peerOpts());
     timer=setTimeout(()=>retry(a,'Cannot reach the PeerJS connection service (0.peerjs.com). Your network may be blocking it. Retrying…'),12000);
     peer.on('open',()=>{
       if(!live(a))return;clearTimeout(timer);
@@ -291,7 +347,7 @@ async function netCheck(){
   try{
     if(typeof RTCPeerConnection==='undefined')throw Error('This browser has WebRTC disabled.');
     await loadPeer();
-    const tmp=new Peer(),cfg=(tmp.options&&tmp.options.config)||{iceServers:[{urls:'stun:stun.l.google.com:19302'}]};try{tmp.destroy()}catch{}
+    const tmp=new Peer(undefined,peerOpts()),cfg=(tmp.options&&tmp.options.config)||{iceServers:[{urls:'stun:stun.l.google.com:19302'}]};try{tmp.destroy()}catch{}
     const pc=new RTCPeerConnection({iceServers:cfg.iceServers}),seen=new Set();
     pc.createDataChannel('t');
     pc.onicecandidate=e=>{if(e.candidate){const m=/ typ (\w+)/.exec(e.candidate.candidate);if(m)seen.add(m[1])}};
@@ -311,12 +367,14 @@ function route(){
   teardown();
   const [,a,b]=location.hash.slice(1).split('/');
   if(a==='join'&&b)return joinView(b);
+  if(a==='admin'){const u=user();if(u&&u.role==='superadmin')return adminView();location.hash='#/';return}
   if(a==='host'&&b){if(user()&&rooms().some(r=>r.id===b))return hostRoom(b);location.hash='#/';return}
   user()?dash():authView();
 }
 addEventListener('error',e=>{const x=$('#err');if(x)x.textContent='Error: '+e.message});
 addEventListener('unhandledrejection',e=>{const x=$('#err');if(x)x.textContent='Error: '+(e.reason&&e.reason.message||e.reason)});
-addEventListener('hashchange',route);route();
+addEventListener('hashchange',route);
+if(/^#\/join\//.test(location.hash)){route();loadRoles()}else loadRoles().then(route);
 </script>
 </body>
 </html>
