@@ -72,12 +72,23 @@ const PEER_MSG='Could not load PeerJS from jsdelivr, cdnjs or unpkg. Your networ
    const ICE_SERVERS=[{urls:['turn:turn.example.com:443?transport=tcp'],username:'USER',credential:'PASSWORD'}];
    Anyone who can open this page can read these values, so use a free or low-limit account. */
 const ICE_SERVERS=[];
+/* Easiest option: a TURN provider that returns an iceServers list from a URL (e.g. Metered Open Relay):
+   const TURN_API_URL='https://asadplanningpoker.metered.live/api/v1/turn/credentials?apiKey=337f2324bf72390d338339b08a667b7c1970'; */
+const TURN_API_URL='';
+let iceP=null,iceExtra=[];
+const loadIce=()=>iceP||(iceP=(async()=>{
+  if(!TURN_API_URL)return;
+  try{const c=new AbortController(),t=setTimeout(()=>c.abort(),5000);const r=await fetch(TURN_API_URL,{signal:c.signal});clearTimeout(t);
+    const j=await r.json();if(Array.isArray(j))iceExtra=j}catch{}
+})());
 const peerOpts=()=>{
   const d=(window.peerjs&&peerjs.util&&peerjs.util.defaultConfig)||{iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
-  return ICE_SERVERS.length?{config:{...d,iceServers:[...d.iceServers,...ICE_SERVERS]}}:{};
+  const extra=[...ICE_SERVERS,...iceExtra];
+  return extra.length?{config:{...d,iceServers:[...d.iceServers,...extra]}}:{};
 };
 let peerP=null;
-function loadPeer(){
+const loadPeer=()=>Promise.all([loadLib(),loadIce()]).then(()=>{});
+function loadLib(){
   if(typeof Peer!=='undefined')return Promise.resolve();
   if(peerP)return peerP;
   return peerP=(async()=>{
@@ -104,6 +115,7 @@ const store=(()=>{
 })();
 const LS={get(k,d){try{return JSON.parse(store.get(k))??d}catch{return d}},set(k,v){try{store.set(k,JSON.stringify(v))}catch(e){throw Error('Could not save data: '+e.message)}},del(k){try{store.del(k)}catch{}}};
 const view=h=>{$('#app').innerHTML=h};
+const setHTML=(el,h)=>{if(el._h!==h){el._h=h;el.innerHTML=h}};
 /* SharePoint may show this page inside an iframe whose own address is about:srcdoc, so a #link can't be built from it.
    In that case invites carry the page address (editable on the dashboard) plus the room code. */
 const direct=/^https?:/.test(location.href);
@@ -251,8 +263,8 @@ function render(){
   const ps=Object.entries(S.players),rev=S.revealed;
   if(S.round!==round){round=S.round;if(!isHost)myVote=null}
   $('#tb').className=(isHost?'tbl':'table')+(rev&&!prevRev?' pop':'');prevRev=rev;
-  $('#tb').innerHTML=isHost?hostTable(ps,rev):ps.map(([id,p])=>{const face=rev&&p.vote!=null;
-    return `<div class="pl${id===meId?' me':''}"><div class="pc ${face?'face':p.voted?'back':'none'}">${face?p.vote:''}</div><div class="nm">${esc(p.name)}</div></div>`}).join('');
+  setHTML($('#tb'),isHost?hostTable(ps,rev):ps.map(([id,p])=>{const face=rev&&p.vote!=null;
+    return `<div class="pl${id===meId?' me':''}"><div class="pc ${face?'face':p.voted?'back':'none'}">${face?p.vote:''}</div><div class="nm">${esc(p.name)}</div></div>`}).join(''));
   const v=ps.map(([,p])=>p.vote).filter(x=>x!=null),voted=ps.filter(([,p])=>p.voted).length;
   let st=ps.length?`${voted} of ${ps.length} voted`:'Waiting for the team to join';
   if(rev&&ps.length){
@@ -261,12 +273,12 @@ function render(){
       const avg=(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1);
       st=Object.keys(cnt).length===1&&v.length>1?`Consensus: <i>${v[0]}</i> points`:`Average <i>${avg}</i> · Most votes <i>${top}</i> · Range ${Math.min(...v)}–${Math.max(...v)}`}
   }
-  $('#stats').innerHTML=st;
+  setHTML($('#stats'),st);
   if(isHost){$('#rv').disabled=rev||!voted;$('#rv').textContent=rev?'Estimates shown':'Show estimates';$('#cl').className='btn'+(rev?' pri':'')}
   else{
     const mine=S.players[meId],lock=rev&&!!(mine&&mine.voted);
     $('#hint').textContent=!rev?'':lock?'Estimates are shown. Voting reopens when the scrum master clears the round.':'Estimates are already shown. Pick a card to add yours.';
-    $('#dk').innerHTML=DECK.map(n=>`<button class="dc${myVote===n?' sel':''}" data-v="${n}" ${lock?'disabled':''} aria-pressed="${myVote===n}" aria-label="${n} story points">${n}</button>`).join('');
+    setHTML($('#dk'),DECK.map(n=>`<button class="dc${myVote===n?' sel':''}" data-v="${n}" ${lock?'disabled':''} aria-pressed="${myVote===n}" aria-label="${n} story points">${n}</button>`).join(''));
     $('#topicv').textContent=S.topic||'Waiting for the next story…';
   }
 }
