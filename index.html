@@ -72,9 +72,9 @@ const PEER_MSG='Could not load PeerJS from jsdelivr, cdnjs or unpkg. Your networ
    const ICE_SERVERS=[{urls:['turn:turn.example.com:443?transport=tcp'],username:'USER',credential:'PASSWORD'}];
    Anyone who can open this page can read these values, so use a free or low-limit account. */
 const ICE_SERVERS=[];
-/* Easiest option: a TURN provider that returns an iceServers list from a URL (e.g. Metered Open Relay):
-   const TURN_API_URL='https://asadplanningpoker.metered.live/api/v1/turn/credentials?apiKey=337f2324bf72390d338339b08a667b7c1970'; */
-const TURN_API_URL='';
+/* Easiest option: a TURN provider that returns an iceServers list from a URL (e.g. Metered Open Relay): */
+const TURN_API_URL='https://asadplanningpoker.metered.live/api/v1/turn/credentials?apiKey=337f2324bf72390d338339b08a667b7c1970';
+// const TURN_API_URL='';
 let iceP=null,iceExtra=[];
 const loadIce=()=>iceP||(iceP=(async()=>{
   if(!TURN_API_URL)return;
