@@ -62,206 +62,280 @@ textarea{width:100%;font:13px/1.4 ui-monospace,Consolas,monospace;resize:vertica
 </head>
 <body>
 <div id="app"></div>
-<script>/*PEERJS_INLINE*/</script>
+<script>/*SUPABASE_INLINE*/</script>
 <script>
-/* PeerJS loader: uses an inlined copy if present, otherwise tries three CDNs in turn. */
-const PEER_SRC=['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js','https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js','https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'];
-const PEER_MSG='Could not load PeerJS from jsdelivr, cdnjs or unpkg. Your network or SharePoint policy is blocking external scripts, so it needs to be embedded in the file.';
-/* Optional TURN relay for networks that block direct browser-to-browser traffic.
-   Paste the details from your TURN provider, for example:
-   const ICE_SERVERS=[{urls:['turn:turn.example.com:443?transport=tcp'],username:'USER',credential:'PASSWORD'}];
-   Anyone who can open this page can read these values, so use a free or low-limit account. */
-const ICE_SERVERS=[];
-/* Easiest option: a TURN provider that returns an iceServers list from a URL (e.g. Metered Open Relay): */
-const TURN_API_URL='https://asadplanningpoker.metered.live/api/v1/turn/credentials?apiKey=337f2324bf72390d338339b08a667b7c1970';
-// const TURN_API_URL='';
-let iceP=null,iceExtra=[];
-const loadIce=()=>iceP||(iceP=(async()=>{
-  if(!TURN_API_URL)return;
-  try{const c=new AbortController(),t=setTimeout(()=>c.abort(),5000);const r=await fetch(TURN_API_URL,{signal:c.signal});clearTimeout(t);
-    const j=await r.json();if(Array.isArray(j))iceExtra=j}catch{}
-})());
-const peerOpts=()=>{
-  const d=(window.peerjs&&peerjs.util&&peerjs.util.defaultConfig)||{iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
-  const extra=[...ICE_SERVERS,...iceExtra];
-  return extra.length?{config:{...d,iceServers:[...d.iceServers,...extra]}}:{};
-};
-let peerP=null;
-const loadPeer=()=>Promise.all([loadLib(),loadIce()]).then(()=>{});
-function loadLib(){
-  if(typeof Peer!=='undefined')return Promise.resolve();
-  if(peerP)return peerP;
-  return peerP=(async()=>{
-    for(const u of PEER_SRC){
-      try{await new Promise((ok,no)=>{const s=document.createElement('script'),t=setTimeout(no,8000);s.src=u;s.onload=()=>{clearTimeout(t);ok()};s.onerror=()=>{clearTimeout(t);no()};document.head.appendChild(s)});
-        if(typeof Peer!=='undefined')return}catch{}
-    }
-    peerP=null;throw Error('blocked');
-  })();
-}
-</script>
-<script>
+/* ===== Configuration =====
+   The URL and the anon key below are PUBLIC by design: every Supabase web app ships them.
+   Your data is protected by the access rules in the database, not by hiding this key.
+   Never put the service_role / secret key in this file. */
+const SB_URL='https://avbpjjqdtmuqclfpqxlb.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2YnBqanFkdG11cWNsZnBxeGxiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTU0ODU1NzEsImV4cCI6MjExMTA2MTU3MX0.-i2w8DqlZHcU3hTwI_1jkSJ0gfGgJXcYzsI07DmO_Lc';
+const OWNER='asad.zubair@10pearls.com';
+const LIB=['https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.47.10/dist/umd/supabase.js','https://unpkg.com/@supabase/supabase-js@2.47.10/dist/umd/supabase.js'];
+const DECK=[1,3,5,8,13,21];
+
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const DECK=[1,3,5,8,13,21];
-/* Storage: localStorage when allowed; otherwise falls back to window.name (survives reloads in the same tab).
-   SharePoint can serve pages in a sandbox where localStorage is blocked. */
-const store=(()=>{
-  try{localStorage.setItem('__t','1');localStorage.removeItem('__t');
-    return{persist:true,get:k=>localStorage.getItem(k),set:(k,v)=>localStorage.setItem(k,v),del:k=>localStorage.removeItem(k)}}catch{}
-  let m={};try{const j=JSON.parse(window.name);if(j&&typeof j==='object'&&j.__pp)m=j}catch{}
-  m.__pp=1;const sv=()=>{try{window.name=JSON.stringify(m)}catch{}};
-  return{persist:false,get:k=>m[k]??null,set:(k,v)=>{m[k]=v;sv()},del:k=>{delete m[k];sv()}};
-})();
-const LS={get(k,d){try{return JSON.parse(store.get(k))??d}catch{return d}},set(k,v){try{store.set(k,JSON.stringify(v))}catch(e){throw Error('Could not save data: '+e.message)}},del(k){try{store.del(k)}catch{}}};
 const view=h=>{$('#app').innerHTML=h};
 const setHTML=(el,h)=>{if(el._h!==h){el._h=h;el.innerHTML=h}};
-/* SharePoint may show this page inside an iframe whose own address is about:srcdoc, so a #link can't be built from it.
-   In that case invites carry the page address (editable on the dashboard) plus the room code. */
+const mem={};
+const store={get(k){try{return sessionStorage.getItem(k)}catch{return mem[k]??null}},set(k,v){try{sessionStorage.setItem(k,v)}catch{mem[k]=v}},del(k){try{sessionStorage.removeItem(k)}catch{delete mem[k]}}};
+const pref={get(k){try{return localStorage.getItem(k)||''}catch{return mem['l'+k]||''}},set(k,v){try{localStorage.setItem(k,v)}catch{mem['l'+k]=v}}};
 const direct=/^https?:/.test(location.href);
-const base=()=>direct?location.href.split('#')[0]:(LS.get('pp.base','')||(document.referrer||'').split('#')[0]);
-const invite=id=>direct?base()+'#/join/'+id:`Join our planning poker session: ${base()||'(open the planning poker page)'}\nEnter room code: ${id}`;
+const base=()=>direct?location.origin+location.pathname:(document.referrer||'').split('#')[0];
+const invite=code=>direct?base()+'#/join/'+code:`Join our planning poker session: ${base()||'(open the planning poker page)'}\nEnter room code: ${code}`;
 const copy=async(t,btn)=>{
   try{await navigator.clipboard.writeText(t);if(btn){const o=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=o,1500)}}
   catch{let d=$('#lk');if(!d){d=document.createElement('input');d.id='lk';d.readOnly=true;d.setAttribute('aria-label','Invite link');d.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:9;box-shadow:0 4px 20px #0004';document.body.appendChild(d)}
     d.value=t;d.focus();d.select();if(btn)btn.textContent='Select and copy below'}
 };
+const friendly=e=>{const m=String((e&&e.message)||e||'');
+  if(m.includes('room_not_found'))return 'Room not found. Check the code.';
+  if(m.includes('removed'))return 'You were removed from this room by the host.';
+  if(m.includes('not_joined'))return 'You are no longer in this room. Reloading…';
+  if(/Failed to fetch|NetworkError|Load failed/i.test(m))return 'Cannot reach the server. Check your internet connection.';
+  return m||'Something went wrong.'};
 
-/* ---------- local accounts (stored in this browser only) ---------- */
-const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b)));
-const rnd=n=>b64(crypto.getRandomValues(new Uint8Array(n)));
-async function hashPw(pw,salt){
-  const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
-  const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:Uint8Array.from(atob(salt),c=>c.charCodeAt(0)),iterations:150000,hash:'SHA-256'},k,256);
-  return b64(bits);
+/* ===== Supabase client ===== */
+let sb=null,me=null,recovering=false,urlErr='';
+let libP=null;
+function loadLib(){
+  return libP||(libP=(async()=>{
+    if(window.supabase&&supabase.createClient)return;
+    for(const u of LIB){
+      try{await new Promise((ok,no)=>{const s=document.createElement('script'),t=setTimeout(no,10000);s.src=u;s.onload=()=>{clearTimeout(t);ok()};s.onerror=()=>{clearTimeout(t);no()};document.head.appendChild(s)});
+        if(window.supabase&&supabase.createClient)return}catch{}
+    }
+    libP=null;throw Error('lib');
+  })());
 }
-/* ---------- roles: superadmin / admin may host; everyone else can only join ---------- */
-const ROOT='asad.zubair@10pearls.com'; /* owner: always a superadmin, can never be removed */
-const ROLES_DEFAULT={superadmins:[ROOT],admins:[]};
-let published=null,rolesErr='';
-const clean=r=>{
-  const f=a=>[...new Set((Array.isArray(a)?a:[]).map(x=>String(x).trim().toLowerCase()).filter(x=>/^\S+@\S+$/.test(x)))];
-  const sa=f(r&&r.superadmins).filter(x=>x!==ROOT);sa.unshift(ROOT);
-  return{superadmins:sa,admins:f(r&&r.admins).filter(x=>!sa.includes(x))};
-};
-async function loadRoles(){
-  published=clean(ROLES_DEFAULT);rolesErr='';
-  if(!direct)return;
-  try{const c=new AbortController(),t=setTimeout(()=>c.abort(),4000);
-    const r=await fetch('roles.json?t='+Date.now(),{cache:'no-store',signal:c.signal});clearTimeout(t);
-    if(!r.ok)throw 0;published=clean(await r.json());
-  }catch{rolesErr='Could not load the approved hosts list (roles.json). Only the owner can sign in until it is available.'}
+async function init(){
+  await loadLib();
+  sb=supabase.createClient(SB_URL,SB_KEY,{auth:{flowType:'pkce',detectSessionInUrl:true,persistSession:true,autoRefreshToken:true}});
+  sb.auth.onAuthStateChange(evt=>{
+    if(evt==='PASSWORD_RECOVERY'){recovering=true;route()}
+    if(evt==='SIGNED_OUT'){me=null;if(!/^#\/join\//.test(location.hash))route()}
+  });
 }
-const draft=()=>LS.get('pp.rolesDraft',null);
-const roles=()=>clean(draft()||published||ROLES_DEFAULT);
-const roleOf=e=>{e=(e||'').trim().toLowerCase();if(e===ROOT)return'superadmin';const r=roles();return r.superadmins.includes(e)?'superadmin':r.admins.includes(e)?'admin':null};
-const user=()=>{const e=LS.get('pp.me');const u=LS.get('pp.users',{})[e];const role=roleOf(e);return u&&role?{email:e,...u,role}:null};
-const rooms=()=>LS.get('pp.rooms.'+user().email,[]);
-const saveRooms=r=>LS.set('pp.rooms.'+user().email,r);
-const newId=()=>[...crypto.getRandomValues(new Uint8Array(8))].map(x=>'abcdefghjkmnpqrstuvwxyz23456789'[x%31]).join('');
+async function loadMe(){
+  me=null;
+  const{data:{session}}=await sb.auth.getSession();
+  if(!session)return;
+  const{data,error}=await sb.rpc('my_role');
+  if(!error&&data&&data.role)me=data;
+}
 
-function authView(mode='in'){
-  const up=mode==='up';
+/* ===== Sign in / register / reset ===== */
+function authView(mode='in',note=''){
+  const up=mode==='up',fg=mode==='fg';
   view(`<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1>
   <p class="lead">Planning poker for sprint estimates. Approved hosts sign in to open a room. Everyone else joins with a room code or invite link, no account needed.</p>
-  <div class="panel"><div class="tabs"><button data-m="in" class="${up?'':'on'}">Sign in</button><button data-m="up" class="${up?'on':''}">Register</button></div>
-  <div id="f">${up?'<label>Your name<input name="name" required autocomplete="name"></label>':''}
+  <div class="panel"><div class="tabs"><button data-m="in" class="${mode==='in'?'on':''}">Sign in</button><button data-m="up" class="${up?'on':''}">Register</button></div>
+  <div id="f">${up?'<label>Your name<input name="name" required autocomplete="name" maxlength="40"></label>':''}
   <label>Email<input name="email" type="email" required autocomplete="email"></label>
-  <label>Password<input name="pw" type="password" required minlength="6" autocomplete="${up?'new-password':'current-password'}"></label>
-  <p class="err" id="err"></p><button class="btn pri" id="sb" type="button" style="width:100%">${up?'Create account':'Sign in'}</button></div></div>
+  ${fg?'':`<label>Password<input name="pw" type="password" required minlength="8" autocomplete="${up?'new-password':'current-password'}"></label>`}
+  <p class="err" id="err">${esc(note||urlErr)}</p><button class="btn pri" id="sb" type="button" style="width:100%">${up?'Create account':fg?'Send reset link':'Sign in'}</button>
+  ${mode==='in'?'<p style="margin:12px 0 0;text-align:center"><button class="lnk" id="fg" type="button">Forgot password?</button></p>':''}${fg?'<p style="margin:12px 0 0;text-align:center"><button class="lnk" id="bk" type="button">Back to sign in</button></p>':''}</div></div>
   <div class="panel"><p style="margin:0 0 8px;font-weight:600">Joining a team session?</p><div class="row"><input id="jc" aria-label="Room code" placeholder="Room code or invite link" autocomplete="off"><button class="btn" id="jg" type="button">Join</button></div><p class="err" id="je" style="margin:6px 0 0"></p></div>
-  ${store.persist?'<p class="note">Accounts and rooms are saved in this browser only. Use the same browser to manage your rooms again.</p>':'<p class="note">Note: this page cannot save data permanently here (common on SharePoint). Your account lasts while this browser tab stays open, which is enough to run a session.</p>'}${rolesErr?`<p class="err">${esc(rolesErr)}</p>`:''}</main>`);
+  <p class="note">Only hosts approved by a superadmin can register. Registration needs email confirmation.</p></main>`);
+  urlErr='';
   $$('.tabs button').forEach(b=>b.onclick=()=>authView(b.dataset.m));
+  const fgb=$('#fg');if(fgb)fgb.onclick=()=>authView('fg');
+  const bk=$('#bk');if(bk)bk.onclick=()=>authView('in');
+  const val=n=>{const i=$('#f [name='+n+']');return i?i.value:''};
   const go=async()=>{
-    const err=$('#err');
-    const f={get:n=>{const i=$('#f [name='+n+']');return i?i.value:''}},email=f.get('email').trim().toLowerCase(),pw=f.get('pw'),us=LS.get('pp.users',{});
-    if(up&&!f.get('name').trim())return err.textContent='Enter your name.';
-    if(!/^\S+@\S+$/.test(email))return err.textContent='Enter a valid email address.';
-    if(!roleOf(email))return err.textContent='This email is not approved to host. To join a session, use the room code below.';
-    if(pw.length<6)return err.textContent='Password must be at least 6 characters.';
-    err.textContent='Working…';
+    const err=$('#err'),btn=$('#sb'),email=val('email').trim().toLowerCase(),pw=val('pw'),name=val('name').trim();
+    if(up&&!name)return err.textContent='Enter your name.';
+    if(!/^\S+@\S+\.\S+$/.test(email))return err.textContent='Enter a valid email address.';
+    if(!fg&&pw.length<8)return err.textContent='Password must be at least 8 characters.';
+    err.textContent='Working…';btn.disabled=true;
     try{
-      if(!crypto.subtle)throw Error('Sign-in needs a secure (https) page.');
-      if(up){if(us[email])return $('#err').textContent='That email is already registered. Sign in instead.';
-        const salt=rnd(16);us[email]={name:f.get('name').trim(),salt,hash:await hashPw(pw,salt)};LS.set('pp.users',us)}
-      else{const u=us[email];if(!u||u.hash!==await hashPw(pw,u.salt))return $('#err').textContent='Email or password is incorrect.'}
-      LS.set('pp.me',email);route();
-    }catch(x){$('#err').textContent=x.message}
+      const page=location.origin+location.pathname;
+      if(fg){
+        const{error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:page});
+        if(error)throw error;
+        err.style.color='var(--ok)';err.textContent='If that email can host, a reset link is on its way.';
+      }else if(up){
+        const{data,error}=await sb.auth.signUp({email,password:pw,options:{data:{name},emailRedirectTo:page}});
+        if(error)throw error;
+        if(data.session){await loadMe();return finishSignIn()}
+        err.style.color='var(--ok)';err.textContent='Almost done. Check '+email+' for a confirmation link, then sign in.';
+      }else{
+        const{error}=await sb.auth.signInWithPassword({email,password:pw});
+        if(error)throw error;
+        await loadMe();finishSignIn();
+      }
+    }catch(x){
+      const m=String(x.message||x);err.style.color='';
+      err.textContent=/Database error|not approved/i.test(m)?'This email is not approved to host. Ask a superadmin to add you.'
+        :/Invalid login/i.test(m)?'Email or password is incorrect.'
+        :/not confirmed/i.test(m)?'Please confirm your email first. Check your inbox for the link.'
+        :/already registered/i.test(m)?'That email is already registered. Sign in instead.'
+        :/rate limit/i.test(m)?'Too many emails were requested. Please wait a few minutes and try again.'
+        :friendly(x);
+    }finally{if(btn)btn.disabled=false}
   };
+  const finishSignIn=async()=>{
+    if(!me){await sb.auth.signOut();return authView('in','This account is not approved to host. Ask a superadmin to add your email.')}
+    route();
+  };
+  $('#sb').onclick=go;$('#f').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
   const jj=()=>{const v=$('#jc').value.trim(),m=v.match(/join\/([a-z0-9]+)/i)||v.match(/^([a-z0-9]{6,12})$/i);if(!m)return $('#je').textContent='Enter the room code from your scrum master.';location.hash='#/join/'+m[1].toLowerCase()};
   $('#jg').onclick=jj;$('#jc').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();jj()}};
-  $('#sb').onclick=go;$('#f').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
+}
+function recoverView(){
+  view(`<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1><p class="lead">Choose a new password.</p>
+  <div class="panel" id="rf"><label>New password<input id="np" type="password" minlength="8" autocomplete="new-password"></label><p class="err" id="err"></p><button class="btn pri" id="rb" type="button" style="width:100%">Save password</button></div></main>`);
+  const go=async()=>{const p=$('#np').value;if(p.length<8)return $('#err').textContent='Password must be at least 8 characters.';
+    const{error}=await sb.auth.updateUser({password:p});
+    if(error)return $('#err').textContent=friendly(error);
+    recovering=false;await loadMe();route()};
+  $('#rb').onclick=go;$('#rf').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
 }
 
-function dash(){
-  const u=user(),rs=rooms();
-  view(`<main class="wrap"><div class="bar"><div><h2>Hi, ${esc(u.name)}</h2><span class="cs">${u.role==='superadmin'?'Superadmin':'Admin'} · Your planning rooms</span></div>${u.role==='superadmin'?'<a class="btn" href="#/admin" style="text-decoration:none;display:inline-grid;place-items:center">Admin area</a>':''}<button class="btn" id="out">Sign out</button></div>
-  ${direct?'':`<div class="panel"><label style="margin:0">Page address your team opens<input id="pb" placeholder="Paste the address from your browser address bar" value="${esc(base())}"></label><p class="note" style="margin:6px 0 0">Invites include this address and the room code.</p></div>`}
-  <div class="panel row" id="nf"><input id="rn" placeholder="New room name, e.g. Sprint 42 refinement" required maxlength="60"><button class="btn pri" id="nb" type="button">Create room</button></div>
-  <div class="panel">${rs.length?rs.map(r=>`<div class="room"><b>${esc(r.name)}</b><span class="row"><a class="btn pri sm" href="#/host/${r.id}" style="text-decoration:none;display:inline-grid;place-items:center">Open</a><button class="btn sm" data-c="${r.id}">Copy invite link</button><button class="btn sm dng" data-d="${r.id}">Delete</button></span></div>`).join(''):'<p class="note" style="margin:0">No rooms yet. Create one above, then share its invite link with your team.</p>'}</div></main>`);
-  {const pb=$('#pb');if(pb)pb.oninput=()=>LS.set('pp.base',pb.value.trim())}
-  $('#out').onclick=()=>{LS.del('pp.me');route()};
-  const mk=()=>{const n=$('#rn').value.trim();if(!n)return $('#rn').focus();const r=rooms(),id=newId();r.unshift({id,name:n});saveRooms(r);location.hash='#/host/'+id};
+/* ===== Host dashboard ===== */
+async function dash(){
+  view('<main class="wrap"><p class="note">Loading…</p></main>');
+  const{data,error}=await sb.rpc('my_rooms');
+  const rs=error?[]:data||[],super_=me.role==='superadmin';
+  view(`<main class="wrap"><div class="bar"><div><h2>Hi, ${esc(me.name||me.email)}</h2><span class="cs">${super_?'Superadmin':'Admin'} · Your planning rooms</span></div>${super_?'<a class="btn" href="#/admin" style="text-decoration:none;display:inline-grid;place-items:center">Admin area</a>':''}<button class="btn" id="out">Sign out</button></div>
+  <div class="panel row" id="nf"><input id="rn" placeholder="New room name, e.g. Sprint 42 refinement" maxlength="80" aria-label="Room name"><button class="btn pri" id="nb" type="button">Create room</button></div>
+  <p class="err" id="derr">${error?esc(friendly(error)):''}</p>
+  <div class="panel" id="rl">${rs.length?rs.map(r=>`<div class="room"><b>${esc(r.name)}</b><span class="row"><a class="btn pri sm" href="#/host/${r.code}" style="text-decoration:none;display:inline-grid;place-items:center">Open</a><button class="btn sm" data-c="${r.code}">Copy invite link</button><button class="btn sm dng" data-d="${r.code}">Delete</button></span></div>`).join(''):'<p class="note" style="margin:0">No rooms yet. Create one above, then share its invite link with your team.</p>'}</div></main>`);
+  $('#out').onclick=async()=>{await sb.auth.signOut();me=null;location.hash='#/';route()};
+  const mk=async()=>{const n=$('#rn').value.trim();if(!n)return $('#rn').focus();
+    $('#nb').disabled=true;const{data:code,error}=await sb.rpc('create_room',{p_name:n});
+    if(error){$('#nb').disabled=false;return $('#derr').textContent=friendly(error)}
+    location.hash='#/host/'+code};
   $('#nb').onclick=mk;$('#nf').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();mk()}};
-  $('.panel:last-child').onclick=e=>{const c=e.target.closest('[data-c]'),d=e.target.closest('[data-d]');
+  $('#rl').onclick=async e=>{const c=e.target.closest('[data-c]'),d=e.target.closest('[data-d]');
     if(c)copy(invite(c.dataset.c),c);
-    if(d){if(d.dataset.sure){saveRooms(rooms().filter(r=>r.id!==d.dataset.d));dash()}else{d.dataset.sure=1;d.textContent='Click again to delete'}}};
+    if(d){if(d.dataset.sure){const{error}=await sb.rpc('delete_room',{p_code:d.dataset.d});if(error)$('#derr').textContent=friendly(error);else dash()}
+      else{d.dataset.sure=1;d.textContent='Click again to delete'}}};
 }
 
-function adminView(){
-  const u=user(),r=roles(),pub=clean(published||ROLES_DEFAULT),json=JSON.stringify(r,null,2);
-  const dirty=!!draft()&&JSON.stringify(clean(draft()))!==JSON.stringify(pub);
-  const row=(e,role)=>`<div class="room"><span><b>${esc(e)}</b> <span class="cs">${role}${e===ROOT?' · owner, protected':''}${e===u.email?' · you':''}</span></span>${e===ROOT||e===u.email?'':`<button class="btn sm dng" data-r="${esc(e)}">Remove</button>`}</div>`;
+/* ===== Admin area (superadmins) ===== */
+async function adminView(){
+  view('<main class="wrap"><p class="note">Loading…</p></main>');
+  const{data,error}=await sb.rpc('list_host_roles');
+  if(error){location.hash='#/';return}
+  const sa=data.filter(r=>r.role==='superadmin'),ad=data.filter(r=>r.role==='admin');
+  const row=(r)=>`<div class="room"><span><b>${esc(r.email)}</b> <span class="cs">${r.role==='superadmin'?'Superadmin':'Admin'}${r.protected?' · owner, protected':''}${r.email===me.email?' · you':''}</span></span>${r.protected||r.email===me.email?'':`<button class="btn sm dng" data-r="${esc(r.email)}">Remove</button>`}</div>`;
   view(`<main class="wrap"><div class="bar"><a href="#/" class="back">‹ Rooms</a><div><h2>Admin area</h2><span class="cs">Who can host planning rooms</span></div></div>
-  <div class="panel" id="af"><p style="margin:0 0 10px;font-weight:600">Add a person</p><div class="row"><input id="ae" type="email" placeholder="name@company.com" aria-label="Email address" autocomplete="off"><select id="ar" aria-label="Role"><option value="admin">Admin</option><option value="superadmin">Superadmin</option></select><button class="btn pri" id="ab" type="button">Add</button></div><p class="err" id="aerr" style="margin:6px 0 0"></p></div>
-  <div class="panel" id="lst"><p style="margin:0 0 4px;font-weight:600">Superadmins</p>${r.superadmins.map(e=>row(e,'Superadmin')).join('')}<p style="margin:16px 0 4px;font-weight:600">Admins</p>${r.admins.length?r.admins.map(e=>row(e,'Admin')).join(''):'<p class="note" style="margin:0">No admins yet.</p>'}</div>
-  <div class="panel"><p style="margin:0 0 6px;font-weight:600">Publish for everyone</p><p class="note" style="margin:0 0 8px">${dirty?'<b>You have unpublished changes.</b> They apply only in this browser until roles.json is replaced.':'This list matches the published roles.json.'} To apply a change for everyone, replace <b>roles.json</b> next to this page (in your GitHub repository) with the text below.</p><textarea id="rj" readonly rows="8" aria-label="roles.json contents">${esc(json)}</textarea><div class="row" style="margin-top:8px"><button class="btn sm" id="cj" type="button">Copy JSON</button><button class="btn sm" id="dj" type="button">Download roles.json</button>${draft()?'<button class="btn sm dng" id="xj" type="button">Discard my changes</button>':''}</div></div></main>`);
-  const save=x=>{const c=clean(x);JSON.stringify(c)===JSON.stringify(pub)?LS.del('pp.rolesDraft'):LS.set('pp.rolesDraft',c);adminView()};
-  const add=()=>{const e=$('#ae').value.trim().toLowerCase(),role=$('#ar').value,err=$('#aerr');
-    if(!/^\S+@\S+$/.test(e))return err.textContent='Enter a valid email address.';
-    if(e===ROOT)return err.textContent='The owner is always a superadmin and cannot be changed.';
-    if(roleOf(e))return err.textContent=e+' already has a role. Remove them first to change it.';
-    const n=clean(roles());n[role==='superadmin'?'superadmins':'admins'].push(e);save(n)};
+  <div class="panel" id="af"><p style="margin:0 0 10px;font-weight:600">Add a person</p><div class="row"><input id="ae" type="email" placeholder="name@company.com" aria-label="Email address" autocomplete="off"><select id="ar" aria-label="Role"><option value="admin">Admin</option><option value="superadmin">Superadmin</option></select><button class="btn pri" id="ab" type="button">Add</button></div><p class="err" id="aerr" style="margin:6px 0 0"></p>
+  <p class="note" style="margin:6px 0 0">They then register with this email and confirm it from their inbox.</p></div>
+  <div class="panel" id="lst"><p style="margin:0 0 4px;font-weight:600">Superadmins</p>${sa.map(row).join('')}<p style="margin:16px 0 4px;font-weight:600">Admins</p>${ad.length?ad.map(row).join(''):'<p class="note" style="margin:0">No admins yet.</p>'}</div></main>`);
+  const add=async()=>{const e=$('#ae').value.trim(),err=$('#aerr');
+    if(!e)return $('#ae').focus();
+    const{error}=await sb.rpc('add_host_role',{p_email:e,p_role:$('#ar').value});
+    if(error)return err.textContent=friendly(error);
+    adminView()};
   $('#ab').onclick=add;$('#af').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();add()}};
-  $('#lst').onclick=e=>{const b=e.target.closest('[data-r]');if(!b)return;const m=b.dataset.r;
-    if(m===ROOT||m===u.email)return;
+  $('#lst').onclick=async e=>{const b=e.target.closest('[data-r]');if(!b)return;
     if(!b.dataset.sure){b.dataset.sure=1;b.textContent='Click again to remove';return}
-    const n=clean(roles());n.superadmins=n.superadmins.filter(x=>x!==m);n.admins=n.admins.filter(x=>x!==m);save(n)};
-  $('#cj').onclick=e=>copy(json,e.target);
-  $('#dj').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([json],{type:'application/json'}));a.download='roles.json';document.body.appendChild(a);a.click();a.remove()};
-  const xj=$('#xj');if(xj)xj.onclick=()=>{LS.del('pp.rolesDraft');adminView()};
+    const{error}=await sb.rpc('remove_host_role',{p_email:b.dataset.r});
+    if(error)return $('#aerr').textContent=friendly(error);
+    adminView()};
 }
 
-/* ---------- shared room UI ---------- */
-let peer=null,conns={},gen=0,S=null,H=null,myVote=null,isHost=false,meId='',prevRev=false,round=0;
-function teardown(){gen++;try{peer&&peer.destroy()}catch{}peer=null;conns={};S=null;H=null;myVote=null;prevRev=false;round=0}
+/* ===== Room: shared engine (host and team) ===== */
+let C=null,S=null,myVote=null,isHost=false,meId='',prevRev=false;
+function teardown(){
+  if(C){C.dead=true;clearTimeout(C.timer);clearTimeout(C.poke);try{C.ch&&sb.removeChannel(C.ch)}catch{}}
+  C=null;S=null;myVote=null;prevRev=false;isHost=false;meId='';
+}
 function setConn(t,cls=''){const e=$('#cs');if(e){e.textContent=t;e.className='cs '+cls}}
+const setStatus=c=>setConn(c.live?'Live':'Connected · updating every few seconds',c.live?'live':'');
 
-function shell(host,title){
-  view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2>${esc(title)}</h2><span id="cs" class="cs">Connecting…</span> <button class="lnk" id="nc" type="button">Test my connection</button><span id="nr" class="cs" style="display:block"></span>${host?`<br><span class="cs">Room code: <b>${esc(H.id)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
+function shell(host,title,code){
+  view(`<main class="wrap"><header class="bar"><a href="#/" class="back" ${host?'':'hidden'}>‹ Rooms</a><div><h2 id="rt">${esc(title)}</h2><span id="cs" class="cs">Connecting…</span>${host?`<br><span class="cs">Room code: <b>${esc(code)}</b></span>`:''}</div>${host?'<button class="btn" id="cp">Copy invite link</button>':''}</header>
   ${host?'<input id="topic" class="topic" maxlength="120" placeholder="What are we estimating? (optional)" aria-label="Story being estimated">':'<p id="topicv" class="topic"></p>'}
   ${host?`<div class="ctl"><button class="btn pri" id="rv">Show estimates</button><button class="btn" id="cl">Clear estimates</button></div><p class="stats" id="stats"></p><section class="tbl" id="tb" aria-live="polite"></section>`:`<section class="table" id="tb" aria-live="polite"><p style="color:#8b95a8;margin:0;align-self:center">Connecting to the room…</p></section><p class="stats" id="stats"></p><section class="deck" id="dk"></section><p class="note" id="hint" style="margin:10px 2px 0;min-height:1.4em"></p>`}</main>`);
-  $('#nc').onclick=netCheck;
-  if(!host)$('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
-  $('#tb').onclick=e=>{const k=e.target.closest('[data-k]');if(k&&host)kick(k.dataset.k)};
   if(host){
-    $('#cp').onclick=e=>copy(invite(H.id),e.target);
-    let t;$('#topic').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{H.topic=e.target.value;push()},300)};
-    $('#rv').onclick=()=>{H.revealed=true;push()};
-    $('#cl').onclick=()=>{Object.values(H.players).forEach(p=>p.vote=null);H.revealed=false;H.round++;myVote=null;push()};
+    $('#cp').onclick=e=>copy(invite(code),e.target);
+    let t;$('#topic').oninput=e=>{clearTimeout(t);t=setTimeout(()=>act('host_set_topic',{p_topic:e.target.value}),400)};
+    $('#rv').onclick=()=>act('host_reveal');
+    $('#cl').onclick=()=>act('host_clear');
+    $('#tb').onclick=e=>{const k=e.target.closest('[data-k]');if(k)act('host_kick',{p_pid:k.dataset.k})};
+  }else{
+    $('#dk').onclick=e=>{const b=e.target.closest('[data-v]');if(b)castVote(+b.dataset.v)};
   }
+}
+
+async function act(fn,args={}){
+  const c=C;if(!c)return;
+  const{error}=await sb.rpc(fn,{p_code:c.code,...args});
+  if(c.dead)return;
+  if(error)setConn(friendly(error),'bad');
+  refresh();
+}
+
+function subscribe(c){
+  const ch=sb.channel('room:'+c.code,{config:{private:true}});
+  ch.on('broadcast',{event:'changed'},()=>poke(c)).subscribe(st=>{
+    if(c.dead)return;
+    c.live=(st==='SUBSCRIBED');setStatus(c);
+    if(c.live)poke(c);
+  });
+  c.ch=ch;
+}
+function poke(c){clearTimeout(c.poke);c.poke=setTimeout(()=>{if(!c.dead)refresh()},150)}
+function loop(c){
+  if(c.dead)return;
+  c.timer=setTimeout(async()=>{await refresh();loop(c)},c.live?15000:3000);
+}
+function stopRoom(c,msg){
+  c.dead=true;clearTimeout(c.timer);try{c.ch&&sb.removeChannel(c.ch)}catch{}
+  setConn(msg,'bad');
+  const tb=$('#tb');if(tb&&!c.host)tb.innerHTML='<p style="color:#8b95a8;margin:0;align-self:center;text-align:center">'+esc(msg)+'</p>';
+  const dk=$('#dk');if(dk)dk.innerHTML='';
+}
+
+async function refresh(){
+  const c=C;if(!c||c.dead)return;
+  if(c.busy){c.again=true;return}
+  c.busy=true;
+  try{
+    const{data,error}=await sb.rpc('room_state',{p_code:c.code,p_pid:c.pid,p_secret:c.secret});
+    if(c.dead)return;
+    if(error)throw error;
+    await apply(c,data);
+  }catch(e){
+    if(c.dead)return;
+    if(String(e.message||e).includes('room_not_found'))return stopRoom(c,'This room no longer exists. Ask the host for a new code.');
+    setConn(friendly(e)+' Retrying…','bad');
+  }finally{
+    c.busy=false;
+    if(c.again&&!c.dead){c.again=false;refresh()}
+  }
+}
+
+async function apply(c,data){
+  if(data.kicked){store.del('pp.p.'+c.code);return stopRoom(c,'You were removed from this room by the host.')}
+  if(c.host&&!data.is_host){location.hash='#/';return}
+  if(!c.host&&!data.players.some(p=>p.id===c.pid)&&!c.rejoining){
+    c.rejoining=true;
+    try{await joinCall(c)}catch(e){c.rejoining=false;throw e}
+    c.rejoining=false;
+    return refresh();
+  }
+  S={...data,players:Object.fromEntries(data.players.map(p=>[p.id,p]))};
+  if(!c.host&&!c.voting)myVote=data.my_vote;
+  const rt=$('#rt');if(rt&&data.name)rt.textContent=data.name;
+  const ti=$('#topic');if(ti&&document.activeElement!==ti&&ti.value!==data.topic)ti.value=data.topic;
+  setStatus(c);
+  render();
 }
 
 function hostTable(ps,rev){
   const cell=p=>rev?(p.vote!=null?`<b class="v">${p.vote}</b>`:'<span class="w">No estimate</span>'):(p.voted?'<span class="ok">✓ Voted</span>':'<span class="w">Waiting…</span>');
   const rows=ps.length?ps.map(([id,p])=>`<tr><td>${esc(p.name)}<button class="x" data-k="${id}" aria-label="Remove ${esc(p.name)}">×</button></td><td>${cell(p)}</td></tr>`).join('')
-    :`<tr><td colspan="2" class="w" style="height:90px">Waiting for the team to join. Share room code <b>${esc(H.id)}</b>.</td></tr>`;
+    :`<tr><td colspan="2" class="w" style="height:90px">Waiting for the team to join. Share room code <b>${esc(S.code)}</b>.</td></tr>`;
   return `<table class="est"><thead><tr><th scope="col">Name</th><th scope="col">Estimate</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function render(){
-  if(!S||!$('#tb'))return;
+  if(!S||!C||!$('#tb'))return;
   const ps=Object.entries(S.players),rev=S.revealed;
-  if(S.round!==round){round=S.round;if(!isHost)myVote=null}
   $('#tb').className=(isHost?'tbl':'table')+(rev&&!prevRev?' pop':'');prevRev=rev;
   setHTML($('#tb'),isHost?hostTable(ps,rev):ps.map(([id,p])=>{const face=rev&&p.vote!=null;
     return `<div class="pl${id===meId?' me':''}"><div class="pc ${face?'face':p.voted?'back':'none'}">${face?p.vote:''}</div><div class="nm">${esc(p.name)}</div></div>`}).join(''));
@@ -283,116 +357,75 @@ function render(){
   }
 }
 
-function castVote(n){
-  if(isHost||!S)return;
-  const mine=S.players[meId];
-  if(S.revealed&&mine&&mine.voted)return;
-  const prev=myVote;myVote=(myVote===n&&!S.revealed)?null:n;
-  if(!send({t:'vote',v:myVote})){myVote=prev;setConn('Not connected to the room yet, so your estimate was not sent. Retrying…','bad')}
-  render();
+async function castVote(n){
+  const c=C;if(!c||c.host||!S)return;
+  const mine=S.players[c.pid];if(S.revealed&&mine&&mine.voted)return;
+  const prev=myVote;myVote=(myVote===n&&!S.revealed)?null:n;c.voting=true;render();
+  const{error}=await sb.rpc('cast_vote',{p_code:c.code,p_pid:c.pid,p_secret:c.secret,p_value:myVote});
+  c.voting=false;
+  if(error){myVote=prev;setConn(friendly(error),'bad')}
+  refresh();
 }
 
-/* ---------- host: holds the state, relays only what is allowed ---------- */
-const pub=()=>({topic:H.topic,revealed:H.revealed,round:H.round,players:Object.fromEntries(Object.entries(H.players).map(([k,p])=>[k,{name:p.name,voted:p.vote!=null,vote:H.revealed?p.vote:null}]))});
-function push(){S=pub();render();Object.values(conns).forEach(c=>{try{c.open&&c.send({t:'state',s:S})}catch{}})}
-function kick(id){const c=conns[id];if(c){c.send({t:'kick'});setTimeout(()=>c.close(),100)}delete conns[id];delete H.players[id];push()}
-
-function hostRoom(id){
-  const r=rooms().find(x=>x.id===id);isHost=true;meId='host';
-  H={id,topic:'',revealed:false,round:0,players:{}};
-  shell(true,r.name);push();
-  const g=gen;setConn('Loading…');loadPeer().then(()=>g===gen&&hostPeer(id,g),()=>setConn(PEER_MSG,'bad'));
-}
-function hostPeer(id,g){
-  peer=new Peer('pp-'+id,peerOpts());
-  peer.on('open',()=>setConn('Room open · keep this tab open while estimating','live'));
-  peer.on('error',e=>setConn(e.type==='unavailable-id'?'This room is already open in another tab or device. Close it there first.':'Connection problem ('+e.type+'). Check your network and reload.','bad'));
-  peer.on('connection',c=>{
-    c.on('data',m=>{if(g!==gen||!m)return;
-      if(m.t==='join'&&typeof m.id==='string'){
-        if(conns[m.id]&&conns[m.id]!==c)try{conns[m.id].close()}catch{}
-        conns[m.id]=c;c.pid=m.id;
-        H.players[m.id]={name:String(m.name||'Guest').slice(0,30),vote:DECK.includes(m.vote)&&!H.revealed?m.vote:(DECK.includes(m.vote)?m.vote:null)};push()}
-      else if(m.t==='vote'&&c.pid&&H.players[c.pid]){const p=H.players[c.pid];if(H.revealed?(p.vote==null&&DECK.includes(m.v)):(m.v===null||DECK.includes(m.v))){p.vote=m.v;push()}}});
-    c.on('close',()=>{if(g===gen&&c.pid&&conns[c.pid]===c){delete conns[c.pid];delete H.players[c.pid];push()}});
-  });
+/* ===== Host room ===== */
+async function hostRoom(code){
+  isHost=true;shell(true,'Room',code);
+  const c=C={code,host:true,pid:null,secret:null,live:false};
+  subscribe(c);await refresh();loop(c);
 }
 
-/* ---------- team member ---------- */
-let sendQ=null;const send=m=>{try{if(sendQ&&sendQ.open){sendQ.send(m);return true}}catch{}return false};
-function joinView(id){
-  isHost=false;
-  meId=rnd(9).replace(/[^a-z0-9]/gi,'x');
+/* ===== Team member (no account) ===== */
+function joinView(code){
   view(`<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1><p class="lead">You've been invited to a planning poker room. No account needed.</p>
-  <div class="panel" id="jf"><label>Your name<input id="jn" required maxlength="30" autocomplete="name" value="${esc(LS.get('pp.name',''))}"></label><button class="btn pri" id="jb" type="button" style="width:100%">Join room</button></div></main>`);
-  const go=()=>{const n=$('#jn').value.trim();if(!n)return $('#jn').focus();try{LS.set('pp.name',n)}catch{}startClient(id,n)};
+  <div class="panel" id="jf"><label>Your name<input id="jn" required maxlength="30" autocomplete="name" value="${esc(pref.get('pp.name'))}"></label><p class="err" id="je"></p><button class="btn pri" id="jb" type="button" style="width:100%">Join room</button></div></main>`);
+  const go=()=>{const n=$('#jn').value.trim();if(!n)return $('#jn').focus();pref.set('pp.name',n);startTeam(code,n)};
   $('#jb').onclick=go;$('#jf').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go()}};
 }
-function startClient(id,name){
-  shell(false,'Sprint Planning Poker');
-  const g=gen;let kicked=false,att=0,timer=null;
-  const live=a=>g===gen&&a===att&&!kicked;
-  const retry=(a,msg)=>{if(!live(a))return;att++;clearTimeout(timer);setConn(msg||'Reconnecting…','bad');try{peer&&peer.destroy()}catch{}setTimeout(connect,3000)};
-  function connect(){
-    if(g!==gen||kicked)return;
-    const a=++att;setConn('Loading…');
-    loadPeer().then(()=>live(a)&&peerUp(a),()=>setConn(PEER_MSG,'bad'));
+async function joinCall(c){
+  let saved=null;try{saved=JSON.parse(store.get('pp.p.'+c.code)||'null')}catch{}
+  const{data,error}=await sb.rpc('join_room',{p_code:c.code,p_name:c.name,p_pid:saved&&saved.pid||null,p_secret:saved&&saved.secret||null});
+  if(error)throw error;
+  c.pid=data.pid;c.secret=data.secret;meId=c.pid;
+  store.set('pp.p.'+c.code,JSON.stringify(data));
+}
+async function startTeam(code,name){
+  isHost=false;shell(false,'Sprint Planning Poker',code);
+  const c=C={code,host:false,name,pid:null,secret:null,live:false};
+  try{await joinCall(c)}catch(e){
+    if(c.dead)return;
+    const m=String(e.message||e);
+    if(m.includes('removed'))store.del('pp.p.'+code);
+    return stopRoom(c,friendly(e));
   }
-  function peerUp(a){
-    setConn('Contacting the connection service…');
-    peer=new Peer(undefined,peerOpts());
-    timer=setTimeout(()=>retry(a,'Cannot reach the PeerJS connection service (0.peerjs.com). Your network may be blocking it. Retrying…'),12000);
-    peer.on('open',()=>{
-      if(!live(a))return;clearTimeout(timer);
-      setConn('Connecting to the room…');
-      const c=peer.connect('pp-'+id,{reliable:true});sendQ=c;
-      timer=setTimeout(()=>{const st=c.peerConnection?c.peerConnection.iceConnectionState:'no answer from room';retry(a,'Could not reach the room (state: '+st+'). Make sure the scrum master has it open, and that your network allows peer-to-peer connections. Use "Test my connection" for details. Retrying…')},15000);
-      c.on('open',()=>{if(!live(a))return;clearTimeout(timer);c.send({t:'join',id:meId,name,vote:myVote});setConn('Connected','live')});
-      c.on('data',m=>{if(!live(a)||!m)return;
-        if(m.t==='state'){S=m.s;render();const me=S.players[meId];if(!me)send({t:'join',id:meId,name,vote:myVote});else if(myVote!=null&&!me.voted)send({t:'vote',v:myVote})}
-        if(m.t==='kick'){kicked=true;setConn('You were removed from this room.','bad');peer.destroy()}});
-      c.on('close',()=>retry(a));
-      c.on('error',e=>retry(a,'Connection error ('+e.type+'). Retrying…'));
-    });
-    peer.on('error',e=>retry(a,e.type==='peer-unavailable'?'Room is not open yet. Waiting for the scrum master…':'Connection problem ('+e.type+'). Retrying…'));
-  }
-  connect();
+  if(c.dead)return;
+  subscribe(c);await refresh();loop(c);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&C===c)refresh()});
 }
 
-/* ---------- connection test ---------- */
-async function netCheck(){
-  const out=$('#nr');if(!out)return;out.textContent='Testing…';
-  try{
-    if(typeof RTCPeerConnection==='undefined')throw Error('This browser has WebRTC disabled.');
-    await loadPeer();
-    const tmp=new Peer(undefined,peerOpts()),cfg=(tmp.options&&tmp.options.config)||{iceServers:[{urls:'stun:stun.l.google.com:19302'}]};try{tmp.destroy()}catch{}
-    const pc=new RTCPeerConnection({iceServers:cfg.iceServers}),seen=new Set();
-    pc.createDataChannel('t');
-    pc.onicecandidate=e=>{if(e.candidate){const m=/ typ (\w+)/.exec(e.candidate.candidate);if(m)seen.add(m[1])}};
-    await pc.setLocalDescription(await pc.createOffer());
-    await new Promise(r=>{const t=setTimeout(r,7000);pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete'){clearTimeout(t);r()}}});
-    pc.close();
-    const f=[...seen].join(', ')||'none';
-    out.textContent=!seen.size?'No connection candidates found. WebRTC may be blocked by browser settings, an extension or company policy.'
-      :seen.has('relay')?'Good: the relay server is reachable, so connections should work (found: '+f+').'
-      :seen.has('srflx')?'Partly OK (found: '+f+'). No relay was reachable, so connections may fail behind strict firewalls.'
-      :'Problem (found: '+f+'). Only local addresses were found, so this network blocks the traffic browsers need to connect to each other. Try another network, such as a phone hotspot, or ask IT to allow WebRTC (UDP) and TURN.';
-  }catch(e){out.textContent='Test failed: '+e.message}
-}
-
-/* ---------- router ---------- */
-function route(){
+/* ===== Router and start-up ===== */
+async function route(){
   teardown();
-  const [,a,b]=location.hash.slice(1).split('/');
-  if(a==='join'&&b)return joinView(b);
-  if(a==='admin'){const u=user();if(u&&u.role==='superadmin')return adminView();location.hash='#/';return}
-  if(a==='host'&&b){if(user()&&rooms().some(r=>r.id===b))return hostRoom(b);location.hash='#/';return}
-  user()?dash():authView();
+  const[,a,b]=location.hash.slice(1).split('/');
+  if(a==='join'&&b)return joinView(b.toLowerCase());
+  if(recovering)return recoverView();
+  if(!me)return authView();
+  if(a==='host'&&b)return hostRoom(b.toLowerCase());
+  if(a==='admin'){if(me.role==='superadmin')return adminView();location.hash='#/';return}
+  dash();
 }
-addEventListener('error',e=>{const x=$('#err');if(x)x.textContent='Error: '+e.message});
-addEventListener('unhandledrejection',e=>{const x=$('#err');if(x)x.textContent='Error: '+(e.reason&&e.reason.message||e.reason)});
-addEventListener('hashchange',route);
-if(/^#\/join\//.test(location.hash)){route();loadRoles()}else loadRoles().then(route);
+(async()=>{
+  view('<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1><p class="lead">Loading…</p></main>');
+  try{await init()}catch{
+    view('<main class="wrap narrow"><h1 class="logo">Sprint Planning Poker</h1><p class="err">Could not load the connection library (Supabase). Your network may be blocking cdn.jsdelivr.net and unpkg.com. Try another network, or ask your admin to allow them.</p></main>');return}
+  try{
+    const q=new URLSearchParams(location.search);
+    urlErr=q.get('error_description')||'';
+    await loadMe();
+    if(q.has('code')||q.has('error')||q.has('error_description'))history.replaceState(null,'',location.pathname+location.hash);
+  }catch{}
+  addEventListener('hashchange',route);
+  route();
+})();
 </script>
 </body>
 </html>
